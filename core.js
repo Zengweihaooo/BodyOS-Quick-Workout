@@ -35,7 +35,9 @@ export function createSession(now = new Date()) {
     id: `qws_${now.getTime().toString(36)}_${cryptoRandom()}`,
     title: `${new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric" }).format(now)} 力量训练`,
     startedAt, endedAt: "", timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Taipei",
-    sets: [], currentExerciseId: "", rest: null, sync: { status: "local", draftId: "", workoutId: "" }, updatedAt: startedAt,
+    sets: [], currentExerciseId: "", rest: null,
+    timer: { running: false, elapsedMs: 0, startedAtMs: null },
+    sync: { status: "local", draftId: "", workoutId: "" }, updatedAt: startedAt,
   };
 }
 
@@ -49,7 +51,8 @@ export function normalizeSet(input) {
   const loadMode = ["total", "per_side", "per_limb", "assistance"].includes(input.loadMode) ? input.loadMode : "total";
   return {
     ...input,
-    weightValue: Math.max(0, number(input.weightValue, 0)), reps: Math.max(0, Math.round(number(input.reps, 0))),
+    weightValue: Math.max(0, number(input.weightValue, 0)), weightUnit: input.weightUnit === "lb" ? "lb" : "kg",
+    reps: Math.max(0, Math.round(number(input.reps, 0))),
     rir: input.rir === "" || input.rir == null ? null : Math.min(10, Math.max(0, number(input.rir, null))),
     rpe: input.rpe === "" || input.rpe == null ? null : Math.min(10, Math.max(1, number(input.rpe, null))),
     rer: input.rer === "" || input.rer == null ? null : Math.min(2, Math.max(.5, number(input.rer, null))),
@@ -61,13 +64,25 @@ export function normalizeSet(input) {
 }
 
 export function calculateSetVolume(set, bodyWeight = null) {
-  const reps = number(set.reps, 0); const weight = number(set.weightValue, 0);
+  const reps = number(set.reps, 0); const factor = set.weightUnit === "lb" ? 0.45359237 : 1; const weight = number(set.weightValue, 0) * factor;
   if (!reps) return 0;
   if (set.loadMode === "assistance") return bodyWeight == null ? null : Math.max(0, bodyWeight - weight) * reps;
   if (set.loadMode === "per_limb" && (set.left || set.right)) {
-    return number(set.left?.weight, 0) * number(set.left?.reps, 0) + number(set.right?.weight, 0) * number(set.right?.reps, 0);
+    return factor * (number(set.left?.weight, 0) * number(set.left?.reps, 0) + number(set.right?.weight, 0) * number(set.right?.reps, 0));
   }
   return weight * reps * (["per_side", "per_limb"].includes(set.loadMode) ? number(set.sideCount, 2) : 1);
+}
+
+export function timerElapsedMs(session, nowMs = Date.now()) {
+  const timer = session?.timer || {};
+  const stored = Math.max(0, number(timer.elapsedMs, 0));
+  return timer.running && timer.startedAtMs ? stored + Math.max(0, nowMs - timer.startedAtMs) : stored;
+}
+
+export function restRemainingSeconds(rest, nowMs = Date.now()) {
+  if (!rest) return 0;
+  if (rest.running && rest.endsAt) return Math.max(0, Math.ceil((rest.endsAt - nowMs) / 1000));
+  return Math.max(0, Math.ceil(number(rest.remainingSeconds, rest.durationSeconds || 0)));
 }
 
 export function sessionSummary(session) {
@@ -76,7 +91,7 @@ export function sessionSummary(session) {
   return {
     exerciseCount: exercises.size, setCount: session.sets.length, reps: session.sets.reduce((sum, set) => sum + number(set.reps, 0), 0),
     volume: Math.round(volumes.reduce((sum, value) => sum + value, 0) * 10) / 10,
-    durationMinutes: Math.max(1, Math.round((new Date(session.endedAt || Date.now()) - new Date(session.startedAt)) / 60000)),
+    durationMinutes: Math.max(0, Math.round(timerElapsedMs(session) / 60000)),
   };
 }
 

@@ -5,6 +5,9 @@
 - 训练状态、动作库缓存和待导入数据保存在 IndexedDB。
 - Service Worker 只缓存本目录的静态 GET，不缓存 `/api/` 或 POST。
 - 训练完成后可下载 `body.os.quick-workout.v1` JSON 或 Markdown。
+- 训练计时和休息计时均由用户手动开始、暂停；休息支持随时增加 30 秒。
+- 重量支持点击数字直接输入，并可在 kg 与 lb（磅）之间快速切换。
+- 动作库提供胸、背、腿、肩、手臂快捷分类；记录页展示本次训练全部动作与组数。
 - GitHub Pages 上点击“复制 Body.OS JSON”，再粘贴到 Body.OS 的“智能训练捕获”。JSON 会绕过 AI 二次解析并直接进入结构化确认。
 - 本地同源运行时仍可使用“一键导入 Body.OS”，沿用 `workout-capture/recognize` → Apple Watch 场次选择 → `workout-capture/confirm`。
 

@@ -1,4 +1,4 @@
-import { FALLBACK_EXERCISES, LOAD_LABELS, buildBodyCandidate, createExport, createSession, normalizeSet, sessionSummary, toMarkdown } from "./core.js";
+import { FALLBACK_EXERCISES, LOAD_LABELS, buildBodyCandidate, createExport, createSession, normalizeSet, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown } from "./core.js";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const app = $("#app"), bottomBar = $("#bottomBar"), backButton = $("#backButton"), title = $("#screenTitle"), status = $("#networkStatus");
@@ -14,12 +14,39 @@ const DB = {
 
 function escapeHTML(value = "") { const node = document.createElement("span"); node.textContent = String(value); return node.innerHTML; }
 function formatClock(seconds) { const safe = Math.max(0, Math.floor(seconds)); return `${String(Math.floor(safe / 60)).padStart(2, "0")}:${String(safe % 60).padStart(2, "0")}`; }
-function elapsed() { return Math.max(0, (Date.now() - new Date(state.session.startedAt).getTime()) / 1000); }
+function elapsed() { return timerElapsedMs(state.session) / 1000; }
 function showToast(message) { const node = $("#toast"); node.textContent = message; node.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => node.classList.remove("show"), 2600); }
 async function persist() { state.session.updatedAt = new Date().toISOString(); await DB.set("active-session", state.session); status.textContent = navigator.onLine ? "本机已保存" : "离线记录中"; status.style.color = navigator.onLine ? "var(--mint)" : "var(--orange)"; }
 function navigate(screen, data = {}, push = true) { state.screen = screen; Object.assign(state, data); if (push) history.pushState({ screen }, "", `#${screen}`); render(); }
 function setScreenHeading(text, canBack = true) { title.textContent = text; backButton.classList.toggle("hidden", !canBack); requestAnimationFrame(() => title.focus({ preventScroll: true })); }
 function exerciseIcon(exercise) { const map = { horizontal_push: "↗", vertical_push: "↑", horizontal_pull: "↙", vertical_pull: "↓", squat: "◇", hinge: "⌁", shoulder_abduction: "↔", shoulder_flexion: "⌃" }; return map[exercise.movementPattern] || "✦"; }
+
+function exerciseCategory(exercise) {
+  const text = `${exercise.name || ""} ${exercise.movementPattern || ""}`.toLowerCase();
+  if (/curl|triceps|biceps|肱|弯举|下压|臂屈伸|手臂/.test(text)) return "arms";
+  if (/shoulder|deltoid|vertical_push|abduction|flexion|推肩|肩|平举|站姿飞鸟|俯身飞鸟/.test(text)) return "shoulders";
+  if (/squat|hinge|lunge|leg|calf|深蹲|硬拉|腿|臀|提踵/.test(text)) return "legs";
+  if (/pull|row|back|lat|下拉|划船|引体|背/.test(text)) return "back";
+  if (/push|press|chest|adduction|卧推|推胸|夹胸|胸/.test(text)) return "chest";
+  return "other";
+}
+
+async function toggleSessionTimer() {
+  const now = Date.now(), timer = state.session.timer;
+  if (timer.running) {
+    timer.elapsedMs = timerElapsedMs(state.session, now); timer.running = false; timer.startedAtMs = null;
+  } else {
+    if (!timer.elapsedMs && !state.session.sets.length) state.session.startedAt = new Date(now).toISOString();
+    timer.running = true; timer.startedAtMs = now;
+  }
+  await persist(); render();
+}
+
+function sessionOverviewMarkup(activeId) {
+  const groups = groupSets();
+  if (!groups.size) return "";
+  return `<section class="section session-overview"><div class="section-head"><h2>本次训练</h2><span class="label">${groups.size} 个动作 · ${state.session.sets.length} 组</span></div><div class="session-exercise-list">${[...groups.entries()].map(([id, sets]) => { const last = sets.at(-1); return `<button class="session-exercise ${id === activeId ? "active" : ""}" data-session-exercise="${escapeHTML(id)}"><span>${exerciseIcon(last)}</span><strong>${escapeHTML(last.exerciseName)}</strong><small>${sets.length} 组 · ${last.weightValue}${last.weightUnit} × ${last.reps}</small></button>`; }).join("")}</div></section>`;
+}
 
 function render() {
   clearInterval(tickTimer); app.innerHTML = ""; bottomBar.innerHTML = "";
@@ -29,20 +56,20 @@ function render() {
 
 function renderHome() {
   setScreenHeading("训练中", false); const summary = sessionSummary(state.session); const recentIds = [...new Set(state.session.sets.map((s) => s.exerciseId))].reverse();
-  app.innerHTML = `<section class="hero"><div class="hero-row"><div><div class="label">当前训练</div><div class="timer" data-elapsed>${formatClock(elapsed())}</div></div><div class="exercise-icon">⚡</div></div><div class="metrics"><div class="metric"><span class="label">动作</span><strong>${summary.exerciseCount}</strong></div><div class="metric"><span class="label">组数</span><strong>${summary.setCount}</strong></div><div class="metric"><span class="label">训练量</span><strong>${summary.volume}</strong><small>kg</small></div></div></section>
+  app.innerHTML = `<section class="hero"><div class="hero-row"><div><div class="label">训练计时 · ${state.session.timer.running ? "进行中" : "已暂停"}</div><div class="timer" data-elapsed>${formatClock(elapsed())}</div></div><button class="timer-toggle ${state.session.timer.running ? "running" : ""}" id="sessionTimerToggle">${state.session.timer.running ? "Ⅱ 暂停" : "▶ 开始"}</button></div><div class="metrics"><div class="metric"><span class="label">动作</span><strong>${summary.exerciseCount}</strong></div><div class="metric"><span class="label">组数</span><strong>${summary.setCount}</strong></div><div class="metric"><span class="label">训练量</span><strong>${summary.volume}</strong><small>kg</small></div></div></section>
   <section class="section"><div class="section-head"><h2>${recentIds.length ? "继续记录" : "准备开始"}</h2><button id="browseAll">动作库</button></div><div class="card-list">${recentIds.length ? recentIds.slice(0, 4).map((id) => exerciseCard(state.exercises.find((x) => x.id === id) || fromSet(id))).join("") : `<div class="empty">选择第一个标准动作。之后每组可一键复用上一组数据。</div>`}</div></section>`;
   bottomBar.innerHTML = `<button class="secondary" id="finish" ${summary.setCount ? "" : "disabled"}>结束训练</button><button class="primary" id="choose">＋ 选择动作</button>`;
-  $("#choose").onclick = $("#browseAll").onclick = () => navigate("picker"); $("#finish").onclick = finishSession; bindExerciseCards();
+  $("#sessionTimerToggle").onclick = toggleSessionTimer; $("#choose").onclick = $("#browseAll").onclick = () => navigate("picker"); $("#finish").onclick = finishSession; bindExerciseCards();
 }
 
-function fromSet(id) { const set = state.session.sets.find((x) => x.exerciseId === id); return { id, name: set.exerciseName, ...set }; }
+function fromSet(id) { const set = state.session.sets.find((x) => x.exerciseId === id); return { ...set, id, name: set.exerciseName }; }
 function exerciseCard(exercise) { if (!exercise) return ""; const count = state.session.sets.filter((s) => s.exerciseId === exercise.id).length; return `<button class="exercise-card" data-exercise="${escapeHTML(exercise.id)}"><span class="exercise-icon">${exerciseIcon(exercise)}</span><span><strong>${escapeHTML(exercise.name)}</strong><small>${escapeHTML(exercise.equipment || "标准动作")} · ${LOAD_LABELS[exercise.loadMode] || "重量"}${count ? ` · 已记录 ${count} 组` : ""}</small></span><span class="chevron">›</span></button>`; }
 function bindExerciseCards() { document.querySelectorAll("[data-exercise]").forEach((button) => button.onclick = () => openExercise(button.dataset.exercise)); }
 
 function renderPicker() {
-  setScreenHeading("选择标准动作"); app.innerHTML = `<input class="search" id="search" type="search" placeholder="搜索动作、器械或英文名" autocomplete="off" aria-label="搜索动作"><div class="chip-row section"><button class="chip active" data-filter="">全部</button><button class="chip" data-filter="推">推</button><button class="chip" data-filter="拉">拉</button><button class="chip" data-filter="腿">腿</button><button class="chip" data-filter="哑铃">哑铃</button><button class="chip" data-filter="器械">器械</button></div><div class="card-list" id="exerciseList"></div>`;
+  setScreenHeading("选择标准动作"); app.innerHTML = `<input class="search" id="search" type="search" placeholder="搜索动作、器械或英文名" autocomplete="off" aria-label="搜索动作"><section class="category-guide"><div class="section-head"><h2>按训练部位快速找</h2><span class="label">先选部位，再选动作</span></div><div class="chip-row"><button class="chip active" data-filter="">全部</button><button class="chip" data-filter="chest">胸</button><button class="chip" data-filter="back">背</button><button class="chip" data-filter="legs">腿</button><button class="chip" data-filter="shoulders">肩</button><button class="chip" data-filter="arms">手臂</button></div></section><div class="card-list" id="exerciseList"></div>`;
   const list = $("#exerciseList"), search = $("#search"); let filter = "";
-  const update = () => { const term = `${search.value} ${filter}`.trim().toLowerCase(); const words = term.split(/\s+/).filter(Boolean); const matches = state.exercises.filter((x) => words.every((word) => `${x.name} ${x.canonicalNameEn || ""} ${x.equipment || ""} ${x.movementPattern || ""}`.toLowerCase().includes(word) || (word === "推" && x.movementPattern?.includes("push")) || (word === "拉" && x.movementPattern?.includes("pull")) || (word === "腿" && /squat|hinge|lunge/.test(x.movementPattern)))); list.innerHTML = matches.map(exerciseCard).join("") || `<div class="empty">没有找到这个标准动作</div>`; bindExerciseCards(); };
+  const update = () => { const term = search.value.trim().toLowerCase(); const words = term.split(/\s+/).filter(Boolean); const matches = state.exercises.filter((x) => (!filter || exerciseCategory(x) === filter) && words.every((word) => `${x.name} ${x.canonicalNameEn || ""} ${x.equipment || ""} ${x.movementPattern || ""}`.toLowerCase().includes(word))); list.innerHTML = matches.map(exerciseCard).join("") || `<div class="empty">这个分类下没有找到动作，试试搜索或“全部”。</div>`; bindExerciseCards(); };
   search.oninput = update; document.querySelectorAll("[data-filter]").forEach((chip) => chip.onclick = () => { document.querySelectorAll("[data-filter]").forEach((x) => x.classList.remove("active")); chip.classList.add("active"); filter = chip.dataset.filter; update(); }); update(); setTimeout(() => search.focus(), 50);
 }
 
@@ -55,22 +82,28 @@ function defaultRest(previous) { const prior = state.session.sets.filter((x) => 
 
 function renderEntry() {
   const d = state.draft, count = state.session.sets.filter((s) => s.exerciseId === d.exerciseId).length, last = [...state.session.sets].reverse().find((s) => s.exerciseId === d.exerciseId);
+  const unit = d.weightUnit === "lb" ? "lb" : "kg", step = unit === "lb" ? 5 : 2.5;
   setScreenHeading(d.exerciseName); app.innerHTML = `<section class="hero"><div class="entry-title"><span class="exercise-icon">${exerciseIcon(d)}</span><div><div class="label">第 ${count + 1} 组</div><strong>${escapeHTML(d.exerciseName)}</strong><div class="muted">${escapeHTML(d.equipment || "标准动作")}</div></div></div><div class="semantic"><span>重量计算方式</span><select id="loadMode" aria-label="重量计算方式">${Object.entries(LOAD_LABELS).map(([value,label]) => `<option value="${value}" ${d.loadMode === value ? "selected" : ""}>${label}</option>`).join("")}</select></div></section>
+  <div class="session-timer-strip"><span><small>训练计时</small><strong data-elapsed>${formatClock(elapsed())}</strong></span><button id="entryTimerToggle">${state.session.timer.running ? "暂停" : "开始"}</button></div>
   ${restMarkup()}
   ${last ? `<div class="last-set">上一组：${last.weightValue}${last.weightUnit} × ${last.reps} 次${last.rir != null ? ` · RIR ${last.rir}` : ""}</div>` : ""}
-  <div class="step-grid"><div class="stepper"><div class="label">${LOAD_LABELS[d.loadMode]}</div><div class="stepper-controls"><button data-step="weight" data-delta="-2.5" aria-label="减少重量">−</button><input id="weight" class="number-input" inputmode="decimal" value="${d.weightValue}" aria-label="重量"><button data-step="weight" data-delta="2.5" aria-label="增加重量">＋</button></div><div class="label" style="text-align:center">kg${["per_limb","per_side"].includes(d.loadMode) ? ` · 总负荷 ${d.weightValue * 2} kg` : ""}</div></div><div class="stepper"><div class="label">次数</div><div class="stepper-controls"><button data-step="reps" data-delta="-1" aria-label="减少次数">−</button><input id="reps" class="number-input" inputmode="numeric" value="${d.reps}" aria-label="次数"><button data-step="reps" data-delta="1" aria-label="增加次数">＋</button></div><div class="label" style="text-align:center">次</div></div></div>
+  <div class="step-grid"><div class="stepper"><div class="row"><div class="label">${LOAD_LABELS[d.loadMode]}</div><div class="unit-switch" aria-label="重量单位"><button class="${unit === "kg" ? "active" : ""}" data-unit="kg">kg</button><button class="${unit === "lb" ? "active" : ""}" data-unit="lb">lb <small>磅</small></button></div></div><div class="stepper-controls"><button data-step="weight" data-delta="-${step}" aria-label="减少重量">−</button><input id="weight" class="number-input" type="number" inputmode="decimal" min="0" step="${step}" value="${d.weightValue}" aria-label="重量，点击数字可直接输入"><button data-step="weight" data-delta="${step}" aria-label="增加重量">＋</button></div><div class="direct-input-hint">点击数字可直接输入 · ${unit === "lb" ? "当前单位：磅" : "可切换 lb（磅）"}${["per_limb","per_side"].includes(d.loadMode) ? ` · 总负荷 ${d.weightValue * 2} ${unit}` : ""}</div></div><div class="stepper"><div class="label">次数</div><div class="stepper-controls"><button data-step="reps" data-delta="-1" aria-label="减少次数">−</button><input id="reps" class="number-input" type="number" inputmode="numeric" min="0" step="1" value="${d.reps}" aria-label="次数，点击数字可直接输入"><button data-step="reps" data-delta="1" aria-label="增加次数">＋</button></div><div class="direct-input-hint">点击数字可直接输入</div></div></div>
   <section class="section"><div class="section-head"><h2>RIR</h2><span class="label">还能完成几次</span></div><div class="rir-grid">${[null,0,1,2,3,4,5].map((v) => `<button class="chip ${d.rir === v ? "active" : ""}" data-rir="${v == null ? "" : v}">${v == null ? "未记" : v}</button>`).join("")}</div></section>
   <section class="section"><div class="section-head"><h2>左右侧</h2></div><div class="chip-row">${[["both","双侧"],["left","左侧"],["right","右侧"],["alternating","左右交替"]].map(([v,l]) => `<button class="chip ${d.side === v ? "active" : ""}" data-side="${v}">${l}</button>`).join("")}</div></section>
-  <details class="detail-panel"><summary>扩展数据与备注</summary><div class="detail-body"><div class="field"><label for="rest">目标休息（秒）</label><input id="rest" type="number" inputmode="numeric" min="0" max="7200" value="${d.restSeconds || 90}"></div><div class="field"><label for="rpe">RPE（1–10）</label><input id="rpe" type="number" inputmode="decimal" min="1" max="10" step="0.5" value="${d.rpe ?? ""}"></div><div class="field"><label for="rer">RER（0.5–2）</label><input id="rer" type="number" inputmode="decimal" min="0.5" max="2" step="0.1" value="${d.rer ?? ""}"></div><div class="field"><label for="notes">备注 / 疼痛反馈</label><textarea id="notes" maxlength="1000" placeholder="例如：左肩刺痛，动作控制良好">${escapeHTML(d.notes)}</textarea></div></div></details>`;
+  ${sessionOverviewMarkup(d.exerciseId)}
+  <details class="detail-panel"><summary>扩展数据与备注</summary><div class="detail-body"><div class="field"><label for="rest">目标休息（秒，保存后手动开始）</label><input id="rest" type="number" inputmode="numeric" min="0" max="7200" value="${d.restSeconds || 90}"></div><div class="field"><label for="rpe">RPE（1–10）</label><input id="rpe" type="number" inputmode="decimal" min="1" max="10" step="0.5" value="${d.rpe ?? ""}"></div><div class="field"><label for="rer">RER（0.5–2）</label><input id="rer" type="number" inputmode="decimal" min="0.5" max="2" step="0.1" value="${d.rer ?? ""}"></div><div class="field"><label for="notes">备注 / 疼痛反馈</label><textarea id="notes" maxlength="1000" placeholder="例如：左肩刺痛，动作控制良好">${escapeHTML(d.notes)}</textarea></div></div></details>`;
   bottomBar.innerHTML = `<button class="secondary" id="switchExercise">切换动作</button><button class="primary" id="save">${last ? `复用并保存第 ${count + 1} 组` : "保存第 1 组"}</button>`;
   bindEntry();
 }
 
-function restMarkup() { if (!state.session.rest?.endsAt) return ""; return `<section class="rest-card"><div class="row"><div><div class="label">自动休息计时</div><div class="rest-time" data-rest>00:00</div></div><span>下一组已准备</span></div><div class="rest-actions"><button id="restSkip">跳过</button><button id="restAdd">+30 秒</button><button id="restPause">暂停</button></div></section>`; }
+function restMarkup() { const rest = state.session.rest; if (!rest) return ""; return `<section class="rest-card"><div class="row"><div><div class="label">休息计时 · ${rest.running ? "进行中" : "已暂停"}</div><div class="rest-time" data-rest>${formatClock(restRemainingSeconds(rest))}</div></div><span>${rest.running ? "恢复中" : "由你手动开始"}</span></div><div class="rest-actions"><button id="restSkip">跳过</button><button id="restAdd">+30 秒</button><button id="restToggle">${rest.running ? "暂停" : "▶ 开始"}</button></div></section>`; }
 function bindEntry() {
+  $("#entryTimerToggle")?.addEventListener("click", toggleSessionTimer);
   $("#loadMode").onchange = (e) => { state.draft.loadMode = e.target.value; state.draft.sideCount = ["per_limb","per_side"].includes(e.target.value) ? 2 : 1; renderEntry(); };
-  document.querySelectorAll("[data-step]").forEach((button) => button.onclick = () => { const input = button.dataset.step === "weight" ? $("#weight") : $("#reps"); input.value = Math.max(0, Number(input.value || 0) + Number(button.dataset.delta)); input.dispatchEvent(new Event("change")); });
-  $("#weight").onchange = (e) => state.draft.weightValue = Math.max(0, Number(e.target.value || 0)); $("#reps").onchange = (e) => state.draft.reps = Math.max(0, Math.round(Number(e.target.value || 0)));
+  document.querySelectorAll("[data-step]").forEach((button) => button.onclick = () => { const input = button.dataset.step === "weight" ? $("#weight") : $("#reps"); input.value = Math.max(0, Number(input.value || 0) + Number(button.dataset.delta)); input.dispatchEvent(new Event("input")); });
+  $("#weight").onfocus = $("#reps").onfocus = (event) => event.target.select();
+  $("#weight").oninput = (e) => state.draft.weightValue = Math.max(0, Number(e.target.value || 0)); $("#reps").oninput = (e) => state.draft.reps = Math.max(0, Math.round(Number(e.target.value || 0)));
+  document.querySelectorAll("[data-unit]").forEach((button) => button.onclick = () => { state.draft.weightUnit = button.dataset.unit; renderEntry(); });
   document.querySelectorAll("[data-rir]").forEach((button) => button.onclick = () => { state.draft.rir = button.dataset.rir === "" ? null : Number(button.dataset.rir); renderEntry(); });
   document.querySelectorAll("[data-side]").forEach((button) => button.onclick = () => {
     state.draft.side = button.dataset.side;
@@ -81,22 +114,25 @@ function bindEntry() {
   });
   $("#save")?.addEventListener("click", saveSet);
   $("#switchExercise")?.addEventListener("click", async () => { await persist(); navigate("picker"); });
-  $("#restSkip")?.addEventListener("click", () => { state.session.rest = null; persist(); renderEntry(); }); $("#restAdd")?.addEventListener("click", () => { state.session.rest.endsAt += 30000; persist(); updateClocks(); }); $("#restPause")?.addEventListener("click", () => { state.session.rest.pausedSeconds = Math.max(0, Math.round((state.session.rest.endsAt - Date.now()) / 1000)); state.session.rest.endsAt = null; persist(); renderEntry(); });
+  document.querySelectorAll("[data-session-exercise]").forEach((button) => button.onclick = () => openExercise(button.dataset.sessionExercise));
+  $("#restSkip")?.addEventListener("click", () => { state.session.rest = null; persist(); renderEntry(); });
+  $("#restAdd")?.addEventListener("click", () => { const rest = state.session.rest; if (rest.running) rest.endsAt += 30000; else rest.remainingSeconds = restRemainingSeconds(rest) + 30; rest.durationSeconds = Math.max(rest.durationSeconds || 0, restRemainingSeconds(rest)); persist(); updateClocks(); });
+  $("#restToggle")?.addEventListener("click", async () => { const rest = state.session.rest, remaining = restRemainingSeconds(rest); if (rest.running) { rest.remainingSeconds = remaining; rest.running = false; rest.endsAt = null; } else if (remaining > 0) { rest.running = true; rest.endsAt = Date.now() + remaining * 1000; } await persist(); renderEntry(); });
 }
 
 async function saveSet() {
   const extras = { restSeconds: Number($("#rest")?.value || state.draft.restSeconds || 90), rpe: $("#rpe")?.value ?? state.draft.rpe, rer: $("#rer")?.value ?? state.draft.rer, notes: $("#notes")?.value ?? state.draft.notes };
   const set = normalizeSet({ ...state.draft, ...extras, id: `qset_${Date.now().toString(36)}`, completedAt: new Date().toISOString() });
-  if (set.reps < 1) return showToast("次数至少为 1"); state.session.sets.push(set); state.session.rest = { startedAt: Date.now(), endsAt: Date.now() + set.restSeconds * 1000, pausedSeconds: 0 }; state.draft = { ...set, id: "", completedAt: "" };
-  await persist(); navigator.vibrate?.(35); showToast(`第 ${state.session.sets.filter((s) => s.exerciseId === set.exerciseId).length} 组已保存`); renderEntry();
+  if (set.reps < 1) return showToast("次数至少为 1"); state.session.sets.push(set); state.session.rest = { durationSeconds: set.restSeconds, remainingSeconds: set.restSeconds, running: false, endsAt: null }; state.draft = { ...set, id: "", completedAt: "" };
+  await persist(); navigator.vibrate?.(35); showToast(`第 ${state.session.sets.filter((s) => s.exerciseId === set.exerciseId).length} 组已保存 · 休息计时等待开始`); renderEntry();
 }
 
 function updateClocks() {
   document.querySelectorAll("[data-elapsed]").forEach((node) => node.textContent = formatClock(elapsed()));
-  document.querySelectorAll("[data-rest]").forEach((node) => { const seconds = Math.max(0, Math.ceil((state.session.rest?.endsAt - Date.now()) / 1000)); node.textContent = formatClock(seconds); if (!seconds && state.session.rest?.endsAt) { state.session.rest = null; navigator.vibrate?.([120,80,120]); persist(); showToast("休息结束，可以开始下一组"); render(); } });
+  document.querySelectorAll("[data-rest]").forEach((node) => { const seconds = restRemainingSeconds(state.session.rest); node.textContent = formatClock(seconds); if (!seconds && state.session.rest?.running) { state.session.rest = null; navigator.vibrate?.([120,80,120]); persist(); showToast("休息结束，可以开始下一组"); render(); } });
 }
 
-async function finishSession() { state.session.endedAt = new Date().toISOString(); state.session.rest = null; await persist(); await loadWatchCandidates(); navigate("summary"); }
+async function finishSession() { if (state.session.timer.running) { state.session.timer.elapsedMs = timerElapsedMs(state.session); state.session.timer.running = false; state.session.timer.startedAtMs = null; } state.session.endedAt = new Date().toISOString(); state.session.rest = null; await persist(); await loadWatchCandidates(); navigate("summary"); }
 async function loadWatchCandidates() { try { const params = new URLSearchParams({ started_at: state.session.startedAt, ended_at: state.session.endedAt || new Date().toISOString() }); const response = await fetch(`/api/workout-capture/match-candidates?${params}`); if (!response.ok) throw new Error(); const data = await response.json(); state.watchCandidates = data.candidates || []; state.selectedWatch = state.watchCandidates.length === 1 && state.watchCandidates[0].matchConfidence >= .9 ? state.watchCandidates[0].workoutId : ""; } catch { state.watchCandidates = []; } }
 
 function renderSummary() {
@@ -153,7 +189,13 @@ async function loadExerciseLibrary() {
 
 async function boot() {
   const saved = await DB.get("active-session"); state.session = saved?.sets && !saved.sync?.workoutId ? saved : createSession();
-  if (state.session.rest?.endsAt && state.session.rest.endsAt < Date.now()) state.session.rest = null;
+  if (!state.session.timer) {
+    const completedDuration = state.session.endedAt ? Math.max(0, new Date(state.session.endedAt) - new Date(state.session.startedAt)) : 0;
+    state.session.timer = { running: false, elapsedMs: completedDuration, startedAtMs: null };
+  }
+  if (state.session.rest && state.session.rest.remainingSeconds == null) {
+    state.session.rest = { durationSeconds: state.session.rest.pausedSeconds || 90, remainingSeconds: state.session.rest.endsAt ? Math.max(0, Math.ceil((state.session.rest.endsAt - Date.now()) / 1000)) : (state.session.rest.pausedSeconds || 90), running: false, endsAt: null };
+  }
   await loadExerciseLibrary(); await persist(); const requested = location.hash.slice(1); state.screen = ["home","picker","entry","summary","watch"].includes(requested) ? requested : "home"; if (state.screen === "entry" && !state.draft) state.screen = "home"; render();
   if ("serviceWorker" in navigator) navigator.serviceWorker.register(new URL("./sw.js", location.href), { scope: "./" }).catch(() => {});
 }
