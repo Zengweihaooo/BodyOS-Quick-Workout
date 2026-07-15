@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+  <meta name="theme-color" content="#080b10">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="极速训练">
+  <title>Body.OS 极速训练</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <button id="backButton" class="icon-button hidden" type="button" aria-label="返回上一级">‹</button>
+      <div><p class="eyebrow">BODY.OS · QUICK CAPTURE</p><h1 id="screenTitle" tabindex="-1">训练中</h1></div>
+      <span id="networkStatus" class="status-pill">本机已保存</span>
+    </header>
+    <main id="app" aria-live="polite"></main>
+    <nav id="bottomBar" class="bottom-bar" aria-label="主要操作"></nav>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
