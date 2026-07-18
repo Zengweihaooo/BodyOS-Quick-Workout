@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildBodyCandidate, calculateSetVolume, createSession, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise } from "../core.js";
+import { FALLBACK_EXERCISES, LEGACY_EXERCISE_ID_MAP, buildBodyCandidate, calculateSetVolume, canonicalExerciseId, createSession, mergeExerciseCatalog, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise } from "../core.js";
+import { EXERCISE_REFERENCES } from "../exercise-references.js";
 
 const base = { exerciseId: "press", exerciseName: "哑铃推胸", weightValue: 10, weightUnit: "kg", reps: 12, completedAt: "2026-07-15T21:00:00+08:00", restSeconds: 90 };
 
@@ -50,7 +51,48 @@ test("assisted pull-up exports hidden effective load and grip semantics", () => 
   session.bodyWeightKg = 72.4;
   session.sets.push({ ...base, exerciseId: "assisted_pull_up", exerciseName: "辅助引体向上", loadMode: "assistance", weightValue: 25, reps: 8, gripWidth: "wide", gripOrientation: "pronated" });
   const set = buildBodyCandidate(session).exercises[0].sets[0];
+  assert.equal(buildBodyCandidate(session).exercises[0].exerciseCanonicalId, "assisted_close_grip_pull_up");
   assert.equal(set.bodyWeight, 72.4); assert.equal(set.assistanceWeight, 25); assert.equal(set.effectiveLoad, 47.4);
   assert.equal(set.gripWidth, "wide"); assert.equal(set.gripOrientation, "pronated");
   assert.equal(sessionSummary(session).volume, 379.2); assert.match(toMarkdown(session), /宽距 · 正握/);
+});
+
+test("legacy action ids migrate to Body OS canonical ids", () => {
+  assert.equal(canonicalExerciseId("barbell_flat_chest_press"), "barbell_bench_press");
+  assert.equal(canonicalExerciseId("lat_pulldown"), "exercise_df333f4be7bd42bcbd5ef67b9b94847d");
+  assert.equal(canonicalExerciseId("unknown_custom"), "unknown_custom");
+  assert.equal(new Set(Object.values(LEGACY_EXERCISE_ID_MAP)).size, Object.values(LEGACY_EXERCISE_ID_MAP).length);
+});
+
+test("reviewed Body OS references use allowlisted remote URLs", () => {
+  assert.equal(Object.keys(EXERCISE_REFERENCES).length, 39);
+  for (const [id, reference] of Object.entries(EXERCISE_REFERENCES)) {
+    const gif = new URL(reference.gifUrl);
+    assert.equal(gif.protocol, "https:", id);
+    assert.equal(gif.hostname, "raw.githubusercontent.com", id);
+    assert.ok(gif.pathname.startsWith("/hasaneyldrm/exercises-dataset/"), id);
+    assert.ok(Array.isArray(reference.instructionsEn) && reference.instructionsEn.length, id);
+    assert.ok(Array.isArray(reference.instructionsZh) && reference.instructionsZh.length, id);
+    if (reference.wger) {
+      const page = new URL(reference.wger.pageUrl);
+      assert.equal(page.hostname, "wger.de", id);
+      assert.match(page.pathname, /^\/en\/exercise\/\d+$/, id);
+    }
+  }
+});
+
+test("mobile catalog contains the history-critical machine actions", () => {
+  const ids = new Set(FALLBACK_EXERCISES.map((item) => item.id));
+  for (const id of ["arm_down_back_machine", "assisted_close_grip_pull_up", "incline_chest_press", "wide_grip_lat_pulldown_machine"]) assert.ok(ids.has(id), id);
+  assert.equal(EXERCISE_REFERENCES.wide_grip_lat_pulldown_machine.datasetId, "0579");
+  assert.equal(EXERCISE_REFERENCES.wide_grip_lat_pulldown_machine.wger.matchType, "reference");
+});
+
+test("stale IndexedDB rows cannot replace new built-ins and custom rows survive", () => {
+  const merged = mergeExerciseCatalog(
+    [{ id: "assisted_close_grip_pull_up", name: "新版动作", catalogVersion: 2 }],
+    [{ id: "assisted_pull_up", name: "旧版动作" }, { id: "custom_keep", name: "我的动作", isCustom: true }],
+  );
+  assert.deepEqual(merged.map((item) => item.id), ["assisted_close_grip_pull_up", "custom_keep"]);
+  assert.equal(merged[0].name, "新版动作");
 });

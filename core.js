@@ -1,5 +1,32 @@
 export const SCHEMA_VERSION = "body.os.quick-workout.v1";
 
+export const EXERCISE_CATALOG_VERSION = 2;
+export const LEGACY_EXERCISE_ID_MAP = Object.freeze({
+  assisted_pull_up: "assisted_close_grip_pull_up",
+  barbell_flat_chest_press: "barbell_bench_press",
+  barbell_incline_chest_press: "barbell_incline_bench_press",
+  incline_chest_press_machine: "incline_chest_press",
+  pull_up: "exercise_298c060030f546e396d029c2a7c85a8b",
+  lat_pulldown: "exercise_df333f4be7bd42bcbd5ef67b9b94847d",
+  face_pull: "exercise_4f579027f9d8415a92ced94cb23d7783",
+  barbell_back_squat: "exercise_53c4ce823a084c1ab67365256425f567",
+  romanian_deadlift: "exercise_dd433adf74c9471787f855dded3ae8eb",
+  cable_chest_fly: "exercise_73cb585f6e2f4941910f4cfb7ed45058",
+  leg_press: "exercise_2c05680b485547c8a9782be6aa732107",
+  leg_curl: "exercise_912f4b3f4217460b954799c2d9715013",
+  dumbbell_biceps_curl: "exercise_e82365030efe4a2184e0d6f9ea11d8f6",
+  triceps_pushdown: "exercise_73736180be204738855209eb753687c1",
+});
+
+export const canonicalExerciseId = (id) => LEGACY_EXERCISE_ID_MAP[id] || id;
+
+export function mergeExerciseCatalog(base, cached = []) {
+  const builtIn = (base || []).map((item) => ({ ...item, id: canonicalExerciseId(item.id) }));
+  const seen = new Set(builtIn.map((item) => item.id));
+  const custom = (cached || []).filter((item) => item?.isCustom).map((item) => ({ ...item, id: canonicalExerciseId(item.id) })).filter((item) => item.id && !seen.has(item.id));
+  return [...builtIn, ...custom];
+}
+
 export const FALLBACK_EXERCISES = [
   ["dumbbell_flat_chest_press", "哑铃平板推胸", "Dumbbell Bench Press", "哑铃", "horizontal_push", "per_limb", "bilateral_simultaneous", 2],
   ["dumbbell_incline_chest_press", "哑铃上斜推胸", "Incline Dumbbell Press", "哑铃", "horizontal_push", "per_limb", "bilateral_simultaneous", 2],
@@ -11,6 +38,8 @@ export const FALLBACK_EXERCISES = [
   ["dumbbell_front_raise", "哑铃前平举", "Dumbbell Front Raise", "哑铃", "shoulder_flexion", "per_limb", "bilateral_simultaneous", 2],
   ["seated_bent_over_reverse_fly", "坐姿俯身飞鸟", "Seated Bent-over Reverse Fly", "哑铃", "horizontal_pull", "per_limb", "bilateral_simultaneous", 2],
   ["wide_grip_lat_pulldown", "宽握高位下拉", "Wide-grip Lat Pulldown", "器械", "vertical_pull", "total", "bilateral", 1],
+  ["wide_grip_lat_pulldown_machine", "宽握高位下拉器械", "Wide Grip Pull Down Machine", "器械", "vertical_pull", "total", "bilateral", 1],
+  ["arm_down_back_machine", "直臂下拉器械", "Lever Pullover", "器械", "shoulder_extension", "total", "bilateral", 1],
   ["close_grip_seated_row", "窄握坐姿划船", "Close-grip Seated Row", "器械", "horizontal_pull", "total", "bilateral", 1],
   ["assisted_pull_up", "辅助引体向上", "Assisted Pull-up", "辅助器械", "vertical_pull", "assistance", "bilateral", 1],
   ["pull_up", "引体向上", "Pull-Up", "单杠", "vertical_pull", "total", "bilateral", 1],
@@ -76,7 +105,7 @@ export const FALLBACK_EXERCISES = [
   ["overhead_triceps_extension", "过顶臂屈伸", "Overhead Triceps Extension", "哑铃", "elbow_extension", "total", "bilateral", 1],
   ["skull_crusher", "仰卧臂屈伸", "Lying Triceps Extension", "杠铃", "elbow_extension", "total", "bilateral", 1],
 ].map(([id, name, canonicalNameEn, equipment, movementPattern, loadMode, executionMode, sideCount]) => ({
-  id, name, canonicalNameEn, equipment, movementPattern, loadMode, executionMode, sideCount,
+  id: canonicalExerciseId(id), name, canonicalNameEn, equipment, movementPattern, loadMode, executionMode, sideCount,
 }));
 
 export const LOAD_LABELS = {
@@ -167,8 +196,9 @@ export function sessionSummary(session) {
 export function buildBodyCandidate(session) {
   const grouped = new Map();
   session.sets.forEach((set) => {
-    if (!grouped.has(set.exerciseId)) grouped.set(set.exerciseId, []);
-    grouped.get(set.exerciseId).push(set);
+    const exerciseId = canonicalExerciseId(set.exerciseId);
+    if (!grouped.has(exerciseId)) grouped.set(exerciseId, []);
+    grouped.get(exerciseId).push({ ...set, exerciseId });
   });
   const markdown = toMarkdown(session);
   const exercises = [...grouped.entries()].map(([exerciseId, sets], orderIndex) => ({

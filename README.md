@@ -10,7 +10,8 @@
 - 动作库提供胸、背、腿、肩、手臂快捷分类；记录页展示本次训练全部动作与组数。
 - 动作名称支持中英双语：默认中文为主、英文为辅；右上角可一键切换主次语言。
 - 每次保存后会显示上一组数据和本动作已完成组数的缩略进度；训练总结中的每个动作默认收起组明细，点击后展开。
-- 动作库含一批从 wger 公开动作目录整理的常用离线名称，并可在「自定义」中添加只保存在当前设备的动作；不会下载或复制 wger 图片、视频或描述内容。
+- 资料库以 Body OS canonical ID 为准，内置 39 个经人工核对的 dataset GIF、双语步骤，并为 8 个动作附上 wger 说明/视频或动作页。方形 GIF 使用 `object-fit: contain` 完整展示；第三方媒体保持远程引用，不写入 Service Worker 缓存。
+- 旧版 IndexedDB 动作库与训练中记录会自动迁移 canonical ID，新版内置资料会与用户自定义动作合并，不再被旧缓存覆盖。
 - 首页和总结页可二次确认快速重置本次训练；已记录动作可整项删除，并可在提示条中一键撤销。重置不会清除动作库或离线资源。
 - 背部动作库补齐引体、下拉、划船、直臂下拉/上拉与器械变式的中英文标准名；相关动作可逐组记录宽/中/窄握距及正/反/对握。
 - 辅助引体在连接 Body.OS 时读取最新体重，并在导出层计算净作用重量；中间公式不占用快速记录界面。
@@ -23,3 +24,9 @@
 ## GitHub Pages
 
 把本文件夹作为仓库根目录推送到 GitHub，在仓库 Settings → Pages 中选择从默认分支根目录部署即可。所有网页资源、manifest 和 Service Worker 都使用相对路径，支持项目型 Pages 地址。
+
+## 外部资料与许可
+
+- [hasaneyldrm/exercises-dataset](https://github.com/hasaneyldrm/exercises-dataset)：文本/元数据按其 MIT 许可使用；GIF/图片来自 Gym Visual，仍受源项目标注的独立媒体条款约束。本 PWA 只引用 `raw.githubusercontent.com` 的源文件。
+- [wger](https://github.com/wger-project/wger)：应用代码为 AGPL-3.0-or-later；每条动作说明和视频的 Creative Commons 许可及作者独立保存。页面仅展示清洗后的纯文本说明，并按需跳转到 wger，不预载大型 MOV。
+- 离线时第三方 GIF 与 wger 链接可能不可用，训练记录、动作名称、导出与用户自定义动作仍可使用。
