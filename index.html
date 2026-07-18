@@ -24,6 +24,14 @@
     <nav id="bottomBar" class="bottom-bar" aria-label="主要操作"></nav>
   </div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <section id="copyFallback" class="copy-fallback hidden" role="dialog" aria-modal="true" aria-labelledby="copyFallbackTitle">
+    <div class="copy-fallback-card">
+      <h2 id="copyFallbackTitle">复制 Body.OS JSON</h2>
+      <p>浏览器拦截了自动复制。内容已选中：长按后选择“复制”，或再点一次复制按钮。</p>
+      <textarea id="copyFallbackText" readonly aria-label="可手动复制的 Body.OS JSON"></textarea>
+      <div><button id="copyFallbackClose" type="button">关闭</button><button id="copyFallbackRetry" type="button">再次复制</button></div>
+    </div>
+  </section>
   <script type="module" src="./app.js"></script>
 </body>
 </html>

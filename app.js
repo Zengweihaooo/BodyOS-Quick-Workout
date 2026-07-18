@@ -241,14 +241,33 @@ async function importBodyOS() {
 }
 async function api(url, body) { const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const data = await response.json().catch(() => ({})); if (!response.ok) throw new Error(data.error || data.message || `请求失败 ${response.status}`); return data; }
 
+function legacyCopy(value) {
+  const input = document.createElement("textarea");
+  input.value = value; input.setAttribute("readonly", ""); input.setAttribute("aria-hidden", "true");
+  input.style.cssText = "position:fixed;top:0;left:0;width:1px;height:1px;padding:0;border:0;opacity:.01";
+  document.body.append(input); input.focus({ preventScroll: true }); input.select(); input.setSelectionRange(0, input.value.length);
+  const copied = document.execCommand("copy"); input.remove(); return copied;
+}
+
+function showCopyFallback(value) {
+  const panel = $("#copyFallback"), input = $("#copyFallbackText");
+  input.value = value; panel.classList.remove("hidden"); input.focus({ preventScroll: true }); input.select(); input.setSelectionRange(0, input.value.length);
+  $("#copyFallbackRetry").onclick = () => {
+    if (legacyCopy(value)) { panel.classList.add("hidden"); showToast("已复制；到 Body.OS 智能训练捕获中粘贴即可"); }
+    else { input.focus({ preventScroll: true }); input.select(); input.setSelectionRange(0, input.value.length); showToast("请长按上方内容并选择“复制”"); }
+  };
+  $("#copyFallbackClose").onclick = () => panel.classList.add("hidden");
+}
+
 async function copyBodyJson() {
   const value = JSON.stringify(createExport(state.session), null, 2);
+  let copied = false;
   try {
-    await navigator.clipboard.writeText(value);
-  } catch {
-    const input = document.createElement("textarea"); input.value = value; input.setAttribute("readonly", ""); input.style.position = "fixed"; input.style.opacity = "0"; document.body.append(input); input.select(); document.execCommand("copy"); input.remove();
-  }
-  showToast("已复制；到 Body.OS 智能训练捕获中粘贴即可");
+    if (navigator.clipboard?.writeText && window.isSecureContext) { await navigator.clipboard.writeText(value); copied = true; }
+  } catch { /* Fall through to the iOS/Safari-compatible selection path. */ }
+  if (!copied) copied = legacyCopy(value);
+  if (copied) showToast("已复制；到 Body.OS 智能训练捕获中粘贴即可");
+  else { showCopyFallback(value); showToast("浏览器未授予剪贴板权限；已显示可手动复制的 JSON"); }
 }
 
 function download(type) { const value = type === "json" ? JSON.stringify(createExport(state.session), null, 2) : toMarkdown(state.session); const blob = new Blob([value], { type: type === "json" ? "application/json;charset=utf-8" : "text/markdown;charset=utf-8" }); const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = `body-os-${state.session.startedAt.slice(0,10)}.${type}`; link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 1000); }
