@@ -69,6 +69,7 @@ test("legacy action ids migrate to Body OS canonical ids", () => {
 test("reviewed Body OS references use allowlisted remote URLs", () => {
   assert.equal(Object.keys(EXERCISE_REFERENCES).length, 38);
   assert.equal(new Set(Object.values(EXERCISE_REFERENCES).map((item) => item.datasetId)).size, 38);
+  assert.ok(Object.keys(EXERCISE_REFERENCES).every((id) => FALLBACK_EXERCISES.some((item) => item.id === id)));
   for (const [id, reference] of Object.entries(EXERCISE_REFERENCES)) {
     const gif = new URL(reference.gifUrl);
     assert.equal(gif.protocol, "https:", id);
