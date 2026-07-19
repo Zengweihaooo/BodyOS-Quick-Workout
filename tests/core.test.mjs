@@ -58,13 +58,17 @@ test("assisted pull-up exports hidden effective load and grip semantics", () => 
 
 test("legacy action ids migrate to Body OS canonical ids", () => {
   assert.equal(canonicalExerciseId("barbell_flat_chest_press"), "barbell_bench_press");
-  assert.equal(canonicalExerciseId("lat_pulldown"), "exercise_df333f4be7bd42bcbd5ef67b9b94847d");
+  assert.equal(canonicalExerciseId("lat_pulldown"), "wide_grip_lat_pulldown");
+  assert.equal(canonicalExerciseId("flat_chest_press"), "dumbbell_flat_chest_press");
+  assert.equal(canonicalExerciseId("exercise_298c060030f546e396d029c2a7c85a8b"), "pull_up");
   assert.equal(canonicalExerciseId("unknown_custom"), "unknown_custom");
-  assert.equal(new Set(Object.values(LEGACY_EXERCISE_ID_MAP)).size, Object.values(LEGACY_EXERCISE_ID_MAP).length);
+  assert.ok(Object.values(LEGACY_EXERCISE_ID_MAP).every((id) => !id.startsWith("exercise_")));
+  assert.equal(new Set(FALLBACK_EXERCISES.map((item) => item.id)).size, FALLBACK_EXERCISES.length);
 });
 
 test("reviewed Body OS references use allowlisted remote URLs", () => {
-  assert.equal(Object.keys(EXERCISE_REFERENCES).length, 39);
+  assert.equal(Object.keys(EXERCISE_REFERENCES).length, 38);
+  assert.equal(new Set(Object.values(EXERCISE_REFERENCES).map((item) => item.datasetId)).size, 38);
   for (const [id, reference] of Object.entries(EXERCISE_REFERENCES)) {
     const gif = new URL(reference.gifUrl);
     assert.equal(gif.protocol, "https:", id);
