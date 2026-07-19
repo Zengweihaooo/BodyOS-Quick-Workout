@@ -1,4 +1,4 @@
-import { EXERCISE_CATALOG_VERSION, EXERCISE_REFERENCES, FALLBACK_EXERCISES, LOAD_LABELS, buildBodyCandidate, canonicalExerciseId, createExport, createSession, mergeExerciseCatalog, normalizeSet, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise } from "./core.js";
+import { EXERCISE_CATALOG_VERSION, EXERCISE_REFERENCES, FALLBACK_EXERCISES, LOAD_LABELS, buildBodyCandidate, canonicalExerciseId, createExport, createSession, mergeExerciseCatalog, normalizeSet, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise } from "./core.js?v=4";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const app = $("#app"), bottomBar = $("#bottomBar"), backButton = $("#backButton"), title = $("#screenTitle"), status = $("#networkStatus");
