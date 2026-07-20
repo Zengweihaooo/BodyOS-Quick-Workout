@@ -1,7 +1,12 @@
 import { EXERCISE_CATALOG_VERSION, EXERCISE_REFERENCES, FALLBACK_EXERCISES, LOAD_LABELS, buildBodyCandidate, canonicalExerciseId, createExport, createSession, mergeExerciseCatalog, normalizeSet, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise } from "./core.js?v=8";
+import { normalizeSupabaseConfig, refreshSession, sessionIsFresh, signInWithPassword, uploadWorkout } from "./supabase.js";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const app = $("#app"), bottomBar = $("#bottomBar"), backButton = $("#backButton"), title = $("#screenTitle"), status = $("#networkStatus");
+const DEFAULT_SUPABASE_CONFIG = Object.freeze(normalizeSupabaseConfig({
+  url: "https://zvmesprbvoakonvxzpaj.supabase.co",
+  anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp2bWVzcHJidm9ha29udnh6cGFqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ1NTM1MjUsImV4cCI6MjEwMDEyOTUyNX0.kyXsxN72XkE7t9F8lbu4IaYiuJD7v8Xw1kkn3AlBmaM",
+}));
 const safeExternalUrl = (value, kind) => { try { const url = new URL(String(value || "")); if (url.protocol !== "https:" || (url.port && url.port !== "443") || url.username || url.password) return ""; if (kind === "dataset") return url.hostname === "raw.githubusercontent.com" && url.pathname.startsWith("/hasaneyldrm/exercises-dataset/") ? url.href : ""; if (kind === "wger") return url.hostname === "wger.de" && (/^\/en\/exercise\/\d+\/?$/.test(url.pathname) || url.pathname.startsWith("/media/exercise-video/")) ? url.href : ""; } catch {} return ""; };
 const enrichExercise = (item) => ({ ...item, reference: EXERCISE_REFERENCES[canonicalExerciseId(item.id)] || null, catalogVersion: EXERCISE_CATALOG_VERSION });
 const BASE_EXERCISES = FALLBACK_EXERCISES.map(enrichExercise).filter((item, index, items) => items.findIndex((other) => other.id === item.id) === index);
@@ -16,7 +21,7 @@ const TRAINING_PRESETS = [
   { key: "chest_balanced", group: "chest", title: "胸部平衡", note: "平板推 · 上斜推 · 夹胸", ids: ["dumbbell_flat_chest_press","dumbbell_incline_chest_press","cable_chest_fly"] },
   { key: "back_complete", group: "back", title: "背部完整", note: "垂直拉 · 水平拉 · 肩伸展", ids: ["assisted_close_grip_pull_up","neutral_grip_lat_pulldown","machine_row","straight_arm_pulldown"] },
 ];
-let state = { session: null, exercises: BASE_EXERCISES, screen: "home", draft: null, selectedWatch: "", watchCandidates: [], importing: false, resetArmed: false, locale: "zh" };
+let state = { session: null, exercises: BASE_EXERCISES, screen: "home", draft: null, selectedWatch: "", watchCandidates: [], importing: false, resetArmed: false, locale: "zh", cloud: { config: null, session: null, busy: false } };
 let tickTimer = null, toastTimer = null, resetArmTimer = null;
 const canDirectBodyOs = location.pathname.startsWith("/quick-workout/") && !location.hostname.endsWith("github.io") && location.protocol !== "file:";
 
@@ -122,7 +127,7 @@ function sessionOverviewMarkup(activeId) {
 
 function render() {
   clearInterval(tickTimer); app.innerHTML = ""; bottomBar.innerHTML = "";
-  if (state.screen === "picker") renderPicker(); else if (state.screen === "custom") renderCustomExercise(); else if (state.screen === "entry") renderEntry(); else if (state.screen === "summary") renderSummary(); else if (state.screen === "watch") renderWatch(); else renderHome();
+  if (state.screen === "picker") renderPicker(); else if (state.screen === "custom") renderCustomExercise(); else if (state.screen === "entry") renderEntry(); else if (state.screen === "summary") renderSummary(); else if (state.screen === "watch") renderWatch(); else if (state.screen === "cloud") renderCloud(); else renderHome();
   tickTimer = setInterval(updateClocks, 1000); updateClocks();
 }
 
@@ -236,16 +241,58 @@ function updateClocks() {
 async function finishSession() { if (state.session.timer.running) { state.session.timer.elapsedMs = timerElapsedMs(state.session); state.session.timer.running = false; state.session.timer.startedAtMs = null; } state.session.endedAt = new Date().toISOString(); state.session.rest = null; await persist(); await loadWatchCandidates(); navigate("summary"); }
 async function loadWatchCandidates() { try { const params = new URLSearchParams({ started_at: state.session.startedAt, ended_at: state.session.endedAt || new Date().toISOString() }); const response = await fetch(`/api/workout-capture/match-candidates?${params}`); if (!response.ok) throw new Error(); const data = await response.json(); state.watchCandidates = data.candidates || []; state.selectedWatch = state.watchCandidates.length === 1 && state.watchCandidates[0].matchConfidence >= .9 ? state.watchCandidates[0].workoutId : ""; } catch { state.watchCandidates = []; } }
 
+function cloudAccountLabel() {
+  return state.cloud.session?.user?.email || state.cloud.session?.user?.id || "尚未登录";
+}
+
+async function ensureCloudSession() {
+  if (!state.cloud.config) throw new Error("请先配置 Supabase");
+  if (sessionIsFresh(state.cloud.session)) return state.cloud.session;
+  state.cloud.session = await refreshSession(state.cloud.config, state.cloud.session?.refresh_token);
+  await DB.set("supabase-session", state.cloud.session);
+  return state.cloud.session;
+}
+
+async function syncCurrentWorkoutToCloud() {
+  if (!navigator.onLine) return showToast("当前离线，训练仍安全保存在本机");
+  if (!state.cloud.config || !state.cloud.session) return navigate("cloud");
+  state.cloud.busy = true; renderSummary();
+  try {
+    const session = await ensureCloudSession();
+    const rows = await uploadWorkout(state.cloud.config, session, createExport(state.session));
+    const remote = Array.isArray(rows) ? rows[0] : rows;
+    state.session.sync = { ...state.session.sync, supabaseId: remote?.id || state.session.sync.supabaseId || "uploaded", supabaseUploadedAt: new Date().toISOString() };
+    await persist(); showToast("已安全上传到 Supabase，Body.OS 将自动读取");
+  } catch (error) { showToast(error.message || "Supabase 上传失败"); }
+  state.cloud.busy = false; renderSummary();
+}
+
+function renderCloud() {
+  setScreenHeading("Supabase 云端同步");
+  const configured = Boolean(state.cloud.config), signedIn = Boolean(state.cloud.session?.refresh_token);
+  app.innerHTML = `<section class="hero cloud-hero"><div class="label">受保护的云端通道</div><h2>${signedIn ? "已连接" : configured ? "项目已配置" : "连接 Supabase"}</h2><p class="muted">公开网页只保存公开的 anon key。写入必须通过你的 Supabase Auth 登录，并同时通过数据库用户 allowlist 与 owner_id = auth.uid() 两层 RLS 检查。</p></section>
+  <section class="section"><div class="section-head"><h2>项目配置</h2><span class="label">保存在此浏览器</span></div><form id="cloudConfigForm" class="cloud-form"><label>Project URL<input id="cloudUrl" type="url" required autocomplete="url" placeholder="https://xxxx.supabase.co" value="${escapeHTML(state.cloud.config?.url || "")}"></label><label>Publishable / anon key<input id="cloudAnonKey" type="password" required autocomplete="off" placeholder="sb_publishable_… 或 anon JWT" value="${escapeHTML(state.cloud.config?.anonKey || "")}"></label><button class="secondary" type="submit">保存项目配置</button></form></section>
+  <section class="section"><div class="section-head"><h2>身份验证</h2><span class="label">${escapeHTML(cloudAccountLabel())}</span></div>${signedIn ? `<div class="cloud-signed-in"><p>登录会话保存在此浏览器；原始密码从不保存。</p><button class="danger-link" id="cloudSignOut" type="button">退出登录并清除会话</button></div>` : `<form id="cloudLoginForm" class="cloud-form"><label>邮箱<input id="cloudEmail" type="email" required autocomplete="username"></label><label>密码<input id="cloudPassword" type="password" required autocomplete="current-password"></label><button class="primary" type="submit" ${configured ? "" : "disabled"}>登录 Supabase</button></form>`}</section>
+  <section class="source-policy"><strong>数据库仍需启用 RLS</strong><span>请先执行仓库 supabase/schema.sql。建议在 Supabase 关闭公开注册，仅在 Dashboard 创建你自己的账号。</span></section>`;
+  bottomBar.innerHTML = `<button class="secondary" id="cloudBack">返回训练总结</button>${signedIn ? `<button class="primary" id="cloudUpload" ${state.cloud.busy ? "disabled" : ""}>${state.cloud.busy ? "上传中…" : "上传本次训练"}</button>` : ""}`;
+  $("#cloudBack").onclick = () => history.back();
+  $("#cloudConfigForm").onsubmit = async (event) => { event.preventDefault(); try { state.cloud.config = normalizeSupabaseConfig({ url: $("#cloudUrl").value, anonKey: $("#cloudAnonKey").value }); state.cloud.session = null; await DB.set("supabase-config", state.cloud.config); await DB.set("supabase-session", null); showToast("Supabase 项目配置已保存"); renderCloud(); } catch (error) { showToast(error.message); } };
+  if ($("#cloudLoginForm")) $("#cloudLoginForm").onsubmit = async (event) => { event.preventDefault(); state.cloud.busy = true; try { state.cloud.session = await signInWithPassword(state.cloud.config, $("#cloudEmail").value, $("#cloudPassword").value); await DB.set("supabase-session", state.cloud.session); showToast("Supabase 登录成功"); renderCloud(); } catch (error) { state.cloud.busy = false; showToast(error.message || "登录失败"); } };
+  $("#cloudSignOut")?.addEventListener("click", async () => { state.cloud.session = null; await DB.set("supabase-session", null); showToast("本机登录会话已清除"); renderCloud(); });
+  $("#cloudUpload")?.addEventListener("click", syncCurrentWorkoutToCloud);
+}
+
 function renderSummary() {
   setScreenHeading("训练总结"); const summary = sessionSummary(state.session); const groups = groupSets();
   app.innerHTML = `<section class="hero"><div class="label">训练完成</div><div class="timer">${summary.durationMinutes}<small style="font-size:16px"> 分钟</small></div><div class="metrics"><div class="metric"><span class="label">动作</span><strong>${summary.exerciseCount}</strong></div><div class="metric"><span class="label">组数</span><strong>${summary.setCount}</strong></div><div class="metric"><span class="label">训练量</span><strong>${summary.volume}</strong></div></div></section>
   ${state.session.sync.workoutId ? `<div class="import-state">✓ 已导入 Body.OS · <a class="link" href="/?view=fitness">查看训练</a></div>` : ""}
   <section class="section"><div class="section-head"><h2>${localeText("动作记录", "Exercise log")}</h2><span class="label">${summary.reps} ${localeText("次", "reps")}</span></div>${[...groups.entries()].map(([exerciseId, sets]) => `<article class="summary-card"><header class="summary-card-head"><div>${exerciseLabel(sets[0])}${setPreviewMarkup(sets.length, sets.at(-1))}</div><button class="summary-delete" data-delete-exercise="${escapeHTML(exerciseId)}" aria-label="删除 ${escapeHTML(sets[0].exerciseName)}">${localeText("删除", "Delete")}</button></header><details class="exercise-set-details"><summary>${localeText(`查看 ${sets.length} 组明细`, `View ${sets.length} set details`)}</summary><div>${sets.map((set,index) => `<div class="set-row"><span class="set-index">${index + 1}</span><span class="set-main"><strong>${set.weightValue}${set.weightUnit} × ${set.reps}</strong><small>${LOAD_LABELS[set.loadMode]}${set.rir != null ? ` · RIR ${set.rir}` : ""}</small></span><time>${new Intl.DateTimeFormat("zh-CN",{hour:"2-digit",minute:"2-digit",hour12:false}).format(new Date(set.completedAt))}</time></div>`).join("")}</div></details></article>`).join("")}</section>
-  <section class="section"><div class="section-head"><h2>导出与联动</h2></div><div class="card-list"><button class="exercise-card" id="copyJson"><span class="exercise-icon">⧉</span><span><strong>复制 Body.OS JSON</strong><small>粘贴到 Body.OS「智能训练捕获」即可快速读取</small></span><span class="chevron">›</span></button>${canDirectBodyOs ? `<button class="exercise-card" id="watchLink"><span class="exercise-icon">⌚</span><span><strong>Apple Watch 训练</strong><small>${state.selectedWatch ? "已选择匹配场次" : state.watchCandidates.length ? `${state.watchCandidates.length} 个候选可选` : "暂不匹配"}</small></span><span class="chevron">›</span></button>` : ""}<button class="exercise-card" id="json"><span class="exercise-icon">{ }</span><span><strong>下载结构化 JSON</strong><small>Body.OS Quick Workout v1</small></span><span class="chevron">↓</span></button><button class="exercise-card" id="markdown"><span class="exercise-icon">M↓</span><span><strong>导出 Markdown</strong><small>可读训练备份</small></span><span class="chevron">↓</span></button></div></section>
+  <section class="section"><div class="section-head"><h2>导出与联动</h2></div><div class="card-list"><button class="exercise-card cloud-action" id="supabaseUpload"><span class="exercise-icon">☁</span><span><strong>${state.session.sync.supabaseId ? "已同步 Supabase" : "上传到 Supabase"}</strong><small>${state.session.sync.supabaseId ? "再次上传会安全更新同一条记录" : state.cloud.session ? `已登录 ${escapeHTML(cloudAccountLabel())}` : "使用 Supabase Auth + RLS 保护写入"}</small></span><span class="chevron">${state.cloud.busy ? "…" : "↑"}</span></button><button class="exercise-card" id="copyJson"><span class="exercise-icon">⧉</span><span><strong>复制 Body.OS JSON</strong><small>粘贴到 Body.OS「智能训练捕获」即可快速读取</small></span><span class="chevron">›</span></button>${canDirectBodyOs ? `<button class="exercise-card" id="watchLink"><span class="exercise-icon">⌚</span><span><strong>Apple Watch 训练</strong><small>${state.selectedWatch ? "已选择匹配场次" : state.watchCandidates.length ? `${state.watchCandidates.length} 个候选可选` : "暂不匹配"}</small></span><span class="chevron">›</span></button>` : ""}<button class="exercise-card" id="json"><span class="exercise-icon">{ }</span><span><strong>下载结构化 JSON</strong><small>Body.OS Quick Workout v1</small></span><span class="chevron">↓</span></button><button class="exercise-card" id="markdown"><span class="exercise-icon">M↓</span><span><strong>导出 Markdown</strong><small>可读训练备份</small></span><span class="chevron">↓</span></button></div></section>
   <section class="danger-zone"><div><strong>管理本次训练</strong><small>清空全部组、计时和待同步状态；动作库与离线缓存会保留。</small></div><button class="${state.resetArmed ? "armed" : ""}" id="resetSession">${state.resetArmed ? "确认重置" : "重置本次训练"}</button></section>`;
   bottomBar.innerHTML = `<button class="secondary" id="continue">继续训练</button><button class="primary" id="primaryExport">${canDirectBodyOs ? "一键导入 Body.OS" : "复制 Body.OS JSON"}</button>`;
   $("#continue").onclick = () => { state.session.endedAt = ""; navigate("home"); };
   $("#copyJson").onclick = copyBodyJson; $("#primaryExport").onclick = canDirectBodyOs ? importBodyOS : copyBodyJson;
+  $("#supabaseUpload").onclick = state.cloud.config && state.cloud.session ? syncCurrentWorkoutToCloud : () => navigate("cloud");
   $("#watchLink")?.addEventListener("click", () => navigate("watch")); $("#json").onclick = () => download("json"); $("#markdown").onclick = () => download("md");
   bindSessionManagement();
 }
@@ -315,7 +362,9 @@ async function loadExerciseLibrary() {
 
 async function boot() {
   state.locale = (await DB.get("display-locale")) === "en" ? "en" : "zh";
+  state.cloud.config = (await DB.get("supabase-config")) || DEFAULT_SUPABASE_CONFIG; state.cloud.session = await DB.get("supabase-session");
   const saved = await DB.get("active-session"); state.session = saved?.sets && !saved.sync?.workoutId ? saved : createSession();
+  state.session.sync = state.session.sync || { status: "local", draftId: "", workoutId: "" };
   state.session.sets = (state.session.sets || []).map((set) => ({ ...set, exerciseId: canonicalExerciseId(set.exerciseId) }));
   state.session.currentExerciseId = canonicalExerciseId(state.session.currentExerciseId || "");
   if (!state.session.timer) {
@@ -325,7 +374,7 @@ async function boot() {
   if (state.session.rest && state.session.rest.remainingSeconds == null) {
     state.session.rest = { durationSeconds: state.session.rest.pausedSeconds || 90, remainingSeconds: state.session.rest.endsAt ? Math.max(0, Math.ceil((state.session.rest.endsAt - Date.now()) / 1000)) : (state.session.rest.pausedSeconds || 90), running: false, endsAt: null };
   }
-  await loadExerciseLibrary(); await persist(); const requested = location.hash.slice(1); state.screen = ["home","picker","custom","entry","summary","watch"].includes(requested) ? requested : "home"; if (state.screen === "entry" && !state.draft) state.screen = "home"; render();
+  await loadExerciseLibrary(); await persist(); const requested = location.hash.slice(1); state.screen = ["home","picker","custom","entry","summary","watch","cloud"].includes(requested) ? requested : "home"; if (state.screen === "entry" && !state.draft) state.screen = "home"; render();
   if ("serviceWorker" in navigator) navigator.serviceWorker.register(new URL("./sw.js", location.href), { scope: "./" }).catch(() => {});
 }
 boot();
