@@ -66,21 +66,30 @@ test("legacy action ids migrate to Body OS canonical ids", () => {
   assert.equal(new Set(FALLBACK_EXERCISES.map((item) => item.id)).size, FALLBACK_EXERCISES.length);
 });
 
-test("reviewed Body OS references use allowlisted remote URLs", () => {
-  assert.equal(Object.keys(EXERCISE_REFERENCES).length, 38);
-  assert.equal(new Set(Object.values(EXERCISE_REFERENCES).map((item) => item.datasetId)).size, 38);
+test("reviewed Body OS references use allowlisted URLs and separated sources", () => {
+  assert.equal(Object.keys(EXERCISE_REFERENCES).length, 53);
+  assert.equal(new Set(Object.values(EXERCISE_REFERENCES).map((item) => item.datasetId)).size, 53);
   assert.ok(Object.keys(EXERCISE_REFERENCES).every((id) => FALLBACK_EXERCISES.some((item) => item.id === id)));
   for (const [id, reference] of Object.entries(EXERCISE_REFERENCES)) {
     const gif = new URL(reference.gifUrl);
     assert.equal(gif.protocol, "https:", id);
     assert.equal(gif.hostname, "raw.githubusercontent.com", id);
     assert.ok(gif.pathname.startsWith("/hasaneyldrm/exercises-dataset/"), id);
-    assert.ok(Array.isArray(reference.instructionsEn) && reference.instructionsEn.length, id);
-    assert.ok(Array.isArray(reference.instructionsZh) && reference.instructionsZh.length, id);
+    assert.equal(reference.detailsProvider, "wger", id);
+    assert.ok(Array.isArray(reference.instructionsEn), id);
+    assert.ok(Array.isArray(reference.instructionsZh), id);
     if (reference.wger) {
+      assert.equal(reference.detailsStatus, "ready", id);
+      assert.ok(reference.instructionsEn.length, id);
+      assert.equal(reference.instructionsEn[0], reference.wger.descriptionEn, id);
+      assert.ok(reference.wger.license?.short_name, id);
       const page = new URL(reference.wger.pageUrl);
       assert.equal(page.hostname, "wger.de", id);
       assert.match(page.pathname, /^\/en\/exercise\/\d+$/, id);
+    } else {
+      assert.equal(reference.detailsStatus, "pending", id);
+      assert.deepEqual(reference.instructionsEn, [], id);
+      assert.deepEqual(reference.instructionsZh, [], id);
     }
   }
 });
@@ -90,6 +99,20 @@ test("mobile catalog contains the history-critical machine actions", () => {
   for (const id of ["arm_down_back_machine", "assisted_close_grip_pull_up", "incline_chest_press", "wide_grip_lat_pulldown_machine"]) assert.ok(ids.has(id), id);
   assert.equal(EXERCISE_REFERENCES.wide_grip_lat_pulldown_machine.datasetId, "0579");
   assert.equal(EXERCISE_REFERENCES.wide_grip_lat_pulldown_machine.wger.matchType, "reference");
+  assert.equal(EXERCISE_REFERENCES.single_arm_cable_lateral_raise.datasetId, "0192");
+  assert.equal(EXERCISE_REFERENCES.seated_dumbbell_lateral_raise.datasetId, "0396");
+  assert.equal(EXERCISE_REFERENCES.seated_dumbbell_lateral_raise.wger.id, 918);
+  assert.equal(EXERCISE_REFERENCES.machine_reverse_fly.datasetId, "0602");
+  assert.equal(EXERCISE_REFERENCES.machine_reverse_fly.wger.id, 2464);
+  assert.equal(EXERCISE_REFERENCES.face_pull.wger.id, 222);
+  const names = Object.fromEntries(FALLBACK_EXERCISES.map((item) => [item.id, [item.name, item.canonicalNameEn]]));
+  assert.deepEqual(names.single_arm_cable_lateral_raise, ["绳索侧平举", "Cable Lateral Raise"]);
+  assert.deepEqual(names.seated_dumbbell_lateral_raise, ["坐姿哑铃侧平举", "Seated Dumbbell Lateral Raise"]);
+  assert.deepEqual(names.machine_reverse_fly, ["反向飞鸟（器械）", "Rear Delt Fly Machine"]);
+  assert.deepEqual(names.face_pull, ["面拉", "Face Pull"]);
+  assert.equal(EXERCISE_REFERENCES.cable_front_raise.wger.id, 1731);
+  assert.equal(EXERCISE_REFERENCES.dead_bug.wger.id, 178);
+  assert.equal(EXERCISE_REFERENCES.elliptical_low_intensity.wger.id, 962);
 });
 
 test("stale IndexedDB rows cannot replace new built-ins and custom rows survive", () => {

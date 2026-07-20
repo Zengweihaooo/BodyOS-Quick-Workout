@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#080b10">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://raw.githubusercontent.com; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -21,7 +21,7 @@
       <span id="networkStatus" class="status-pill">本机已保存</span>
       <button id="languageToggle" class="language-toggle" type="button" aria-label="切换中文与英文">中 / EN</button>
     </header>
-    <main id="app" aria-live="polite"></main>
+    <main id="app"></main>
     <nav id="bottomBar" class="bottom-bar" aria-label="主要操作"></nav>
   </div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
@@ -33,6 +33,6 @@
       <div><button id="copyFallbackClose" type="button">关闭</button><button id="copyFallbackRetry" type="button">再次复制</button></div>
     </div>
   </section>
-  <script type="module" src="./app.js?v=4"></script>
+  <script type="module" src="./app.js?v=8"></script>
 </body>
 </html>
