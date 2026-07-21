@@ -237,6 +237,23 @@ export function restRemainingSeconds(rest, nowMs = Date.now()) {
   return Math.max(0, Math.ceil(number(rest.remainingSeconds, rest.durationSeconds || 0)));
 }
 
+export function createRunningRest(durationSeconds = 120, nowMs = Date.now()) {
+  const duration = Math.max(0, Math.round(Number(durationSeconds) || 0));
+  return { durationSeconds: duration, remainingSeconds: duration, running: duration > 0, endsAt: duration > 0 ? nowMs + duration * 1000 : null };
+}
+
+export function adjustRest(rest, deltaSeconds, nowMs = Date.now()) {
+  if (!rest) return null;
+  const remaining = Math.max(0, restRemainingSeconds(rest, nowMs) + Number(deltaSeconds || 0));
+  if (!remaining) return null;
+  return {
+    ...rest,
+    durationSeconds: Math.max(Number(rest.durationSeconds || 0), remaining),
+    remainingSeconds: remaining,
+    endsAt: rest.running ? nowMs + remaining * 1000 : null,
+  };
+}
+
 export function withoutExercise(session, exerciseId) {
   return {
     ...session,

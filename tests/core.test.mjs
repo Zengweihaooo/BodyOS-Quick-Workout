@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { EXERCISE_REFERENCES, FALLBACK_EXERCISES, LEGACY_EXERCISE_ID_MAP, applyRecordingMode, buildBodyCandidate, calculateSetVolume, canonicalExerciseId, createSession, mergeExerciseCatalog, nextSetDraft, recordingModeForSet, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise } from "../core.js";
+import { EXERCISE_REFERENCES, FALLBACK_EXERCISES, LEGACY_EXERCISE_ID_MAP, adjustRest, applyRecordingMode, buildBodyCandidate, calculateSetVolume, canonicalExerciseId, createRunningRest, createSession, mergeExerciseCatalog, nextSetDraft, recordingModeForSet, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise } from "../core.js";
 
 const base = { exerciseId: "press", exerciseName: "哑铃推胸", weightValue: 10, weightUnit: "kg", reps: 12, completedAt: "2026-07-15T21:00:00+08:00", restSeconds: 90 };
 
@@ -33,6 +33,14 @@ test("manual timers only advance while running", () => {
   assert.equal(timerElapsedMs(session, 9000), 7000);
   assert.equal(restRemainingSeconds({ running: false, remainingSeconds: 90 }, 9000), 90);
   assert.equal(restRemainingSeconds({ running: true, endsAt: 19000 }, 9000), 10);
+});
+
+test("saved sets start a two-minute rest that can move by 30 seconds", () => {
+  const rest = createRunningRest(120, 1000);
+  assert.deepEqual(rest, { durationSeconds: 120, remainingSeconds: 120, running: true, endsAt: 121000 });
+  assert.equal(restRemainingSeconds(adjustRest(rest, -30, 1000), 1000), 90);
+  assert.equal(restRemainingSeconds(adjustRest(rest, 30, 1000), 1000), 150);
+  assert.equal(adjustRest(createRunningRest(30, 1000), -30, 1000), null);
 });
 
 test("deleting an exercise removes all of its sets and clears its rest", () => {
