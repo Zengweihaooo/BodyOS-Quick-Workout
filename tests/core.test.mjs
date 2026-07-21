@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { EXERCISE_REFERENCES, FALLBACK_EXERCISES, LEGACY_EXERCISE_ID_MAP, buildBodyCandidate, calculateSetVolume, canonicalExerciseId, createSession, mergeExerciseCatalog, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise } from "../core.js";
+import { EXERCISE_REFERENCES, FALLBACK_EXERCISES, LEGACY_EXERCISE_ID_MAP, applyRecordingMode, buildBodyCandidate, calculateSetVolume, canonicalExerciseId, createSession, mergeExerciseCatalog, nextSetDraft, recordingModeForSet, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise } from "../core.js";
 
 const base = { exerciseId: "press", exerciseName: "哑铃推胸", weightValue: 10, weightUnit: "kg", reps: 12, completedAt: "2026-07-15T21:00:00+08:00", restSeconds: 90 };
 
@@ -15,6 +15,14 @@ test("four load semantics calculate safely", () => {
 test("asymmetric limbs use each side", () => assert.equal(calculateSetVolume({ ...base, loadMode: "per_limb", left: { weight: 10, reps: 12 }, right: { weight: 8, reps: 10 } }), 200));
 
 test("one-sided work is not doubled", () => assert.equal(calculateSetVolume({ ...base, loadMode: "per_limb", side: "left", sideCount: 1 }), 120));
+
+test("one recording-mode field owns load and side semantics", () => {
+  const right = applyRecordingMode(base, "per_limb_right");
+  assert.deepEqual({ mode: right.loadMode, side: right.side, execution: right.executionMode, count: right.sideCount }, { mode: "per_limb", side: "right", execution: "unilateral", count: 1 });
+  assert.equal(recordingModeForSet(right), "per_limb_right");
+  assert.equal(nextSetDraft(right).side, "left");
+  assert.equal(nextSetDraft(nextSetDraft(right)).side, "right");
+});
 
 test("pounds are converted to kg for volume", () => assert.ok(Math.abs(calculateSetVolume({ ...base, weightValue: 20, weightUnit: "lb", loadMode: "total", reps: 10 }) - 90.718474) < 0.000001));
 

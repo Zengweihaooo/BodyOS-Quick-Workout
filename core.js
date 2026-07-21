@@ -186,6 +186,35 @@ export function normalizeSet(input) {
   };
 }
 
+export function recordingModeForSet(input = {}) {
+  if (input.loadMode !== "per_limb") return input.loadMode || "total";
+  if (input.side === "left" || input.side === "right") return `per_limb_${input.side}`;
+  if (input.side === "alternating") return "per_limb_alternating";
+  return "per_limb_both";
+}
+
+export function applyRecordingMode(input, recordingMode) {
+  const next = { ...input };
+  if (recordingMode.startsWith("per_limb_")) {
+    next.loadMode = "per_limb";
+    next.side = recordingMode.slice("per_limb_".length);
+    next.executionMode = ["left", "right", "alternating"].includes(next.side) ? "unilateral" : "bilateral_simultaneous";
+    next.sideCount = ["left", "right"].includes(next.side) ? 1 : 2;
+    return next;
+  }
+  next.loadMode = ["total", "per_side", "assistance"].includes(recordingMode) ? recordingMode : "total";
+  next.side = "both";
+  next.executionMode = next.loadMode === "per_side" ? "bilateral_simultaneous" : "bilateral";
+  next.sideCount = next.loadMode === "per_side" ? 2 : 1;
+  return next;
+}
+
+export function nextSetDraft(input) {
+  const side = input.loadMode === "per_limb" && input.side === "right" ? "left"
+    : input.loadMode === "per_limb" && input.side === "left" ? "right" : input.side;
+  return normalizeSet({ ...input, side, id: "", completedAt: "" });
+}
+
 export function calculateSetVolume(set, bodyWeight = null) {
   const reps = number(set.reps, 0); const factor = set.weightUnit === "lb" ? 0.45359237 : 1; const weight = number(set.weightValue, 0) * factor;
   if (!reps) return 0;
@@ -281,7 +310,8 @@ export function toMarkdown(session) {
     const time = new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(set.completedAt));
     const gripWidth = { wide: "宽距", medium: "中距", close: "窄距" }[set.gripWidth] || "";
     const gripOrientation = { pronated: "正握", supinated: "反握", neutral: "对握" }[set.gripOrientation] || "";
-    const extras = [gripWidth, gripOrientation, set.rir != null ? `RIR ${set.rir}` : "", set.rpe != null ? `RPE ${set.rpe}` : "", set.rer != null ? `RER ${set.rer}` : "", set.notes || ""].filter(Boolean).join(" · ");
+    const side = ({ left: "左侧", right: "右侧", alternating: "左右交替" })[set.side] || "";
+    const extras = [side, gripWidth, gripOrientation, set.rir != null ? `RIR ${set.rir}` : "", set.rpe != null ? `RPE ${set.rpe}` : "", set.rer != null ? `RER ${set.rer}` : "", set.notes || ""].filter(Boolean).join(" · ");
     lines.push(`- ${time} ${LOAD_LABELS[set.loadMode] || "重量"} ${set.weightValue}${set.weightUnit || "kg"} × ${set.reps} 次${extras ? ` · ${extras}` : ""}`);
   });
   return lines.join("\n");

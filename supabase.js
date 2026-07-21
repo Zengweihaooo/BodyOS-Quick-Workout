@@ -47,6 +47,8 @@ export async function uploadWorkout(config, session, workoutExport) {
     schema_version: String(workoutExport.schemaVersion || ""),
     session_started_at: workoutExport.session.startedAt,
     payload: workoutExport,
+    imported_at: null,
+    imported_workout_id: null,
     updated_at: new Date().toISOString(),
   };
   return request(config, "/rest/v1/body_os_workout_uploads?on_conflict=owner_id,client_session_id", {
