@@ -1,4 +1,4 @@
-import { EXERCISE_CATALOG_VERSION, EXERCISE_REFERENCES, FALLBACK_EXERCISES, LOAD_LABELS, adjustRest, applyRecordingMode, buildBodyCandidate, canonicalExerciseId, createExport, createRunningRest, createSession, mergeExerciseCatalog, nextSetDraft, normalizeSet, recordingModeForSet, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise } from "./core.js?v=10";
+import { EXERCISE_CATALOG_VERSION, EXERCISE_REFERENCES, FALLBACK_EXERCISES, LOAD_LABELS, adjustRest, applyRecordingMode, buildBodyCandidate, canonicalExerciseId, changeWeightUnit, createExport, createRunningRest, createSession, decisiveWatchCandidate, mergeExerciseCatalog, nextSetDraft, normalizeSet, recordingModeForSet, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise } from "./core.js?v=11";
 import { normalizeSupabaseConfig, refreshSession, sessionIsFresh, signInWithPassword, uploadWorkout } from "./supabase.js";
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -225,7 +225,10 @@ function bindEntry() {
   document.querySelectorAll("[data-step]").forEach((button) => button.onclick = () => { const input = button.dataset.step === "weight" ? $("#weight") : $("#reps"); input.value = Math.max(0, Number(input.value || 0) + Number(button.dataset.delta)); input.dispatchEvent(new Event("input")); });
   $("#weight").onfocus = $("#reps").onfocus = (event) => event.target.select();
   $("#weight").oninput = (e) => state.draft.weightValue = Math.max(0, Number(e.target.value || 0)); $("#reps").oninput = (e) => state.draft.reps = Math.max(0, Math.round(Number(e.target.value || 0)));
-  document.querySelectorAll("[data-unit]").forEach((button) => button.onclick = () => { state.draft.weightUnit = button.dataset.unit; renderEntry(); });
+  document.querySelectorAll("[data-unit]").forEach((button) => button.onclick = () => {
+    state.draft = changeWeightUnit(state.draft, button.dataset.unit);
+    renderEntry();
+  });
   document.querySelectorAll("[data-rir]").forEach((button) => button.onclick = () => { state.draft.rir = button.dataset.rir === "" ? null : Number(button.dataset.rir); renderEntry(); });
   document.querySelectorAll("[data-grip-width]").forEach((button) => button.onclick = () => { state.draft.gripWidth = button.dataset.gripWidth; renderEntry(); });
   document.querySelectorAll("[data-grip-orientation]").forEach((button) => button.onclick = () => { state.draft.gripOrientation = button.dataset.gripOrientation; renderEntry(); });
@@ -260,7 +263,7 @@ function updateClocks() {
 }
 
 async function finishSession() { if (state.session.timer.running) { state.session.timer.elapsedMs = timerElapsedMs(state.session); state.session.timer.running = false; state.session.timer.startedAtMs = null; } state.session.endedAt = new Date().toISOString(); state.session.rest = null; await persist(); await loadWatchCandidates(); navigate("summary"); }
-async function loadWatchCandidates() { try { const params = new URLSearchParams({ started_at: state.session.startedAt, ended_at: state.session.endedAt || new Date().toISOString() }); const response = await fetch(`/api/workout-capture/match-candidates?${params}`); if (!response.ok) throw new Error(); const data = await response.json(); state.watchCandidates = data.candidates || []; state.selectedWatch = state.watchCandidates.length === 1 && state.watchCandidates[0].matchConfidence >= .9 ? state.watchCandidates[0].workoutId : ""; } catch { state.watchCandidates = []; } }
+async function loadWatchCandidates() { try { const params = new URLSearchParams({ started_at: state.session.startedAt, ended_at: state.session.endedAt || new Date().toISOString() }); const response = await fetch(`/api/workout-capture/match-candidates?${params}`); if (!response.ok) throw new Error(); const data = await response.json(); state.watchCandidates = data.candidates || []; const selected = decisiveWatchCandidate(state.watchCandidates); state.selectedWatch = selected?.workoutId || ""; } catch { state.watchCandidates = []; state.selectedWatch = ""; } }
 
 function cloudAccountLabel() {
   return state.cloud.session?.user?.email || state.cloud.session?.user?.id || "尚未登录";

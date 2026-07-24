@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { EXERCISE_REFERENCES, FALLBACK_EXERCISES, LEGACY_EXERCISE_ID_MAP, adjustRest, applyRecordingMode, buildBodyCandidate, calculateSetVolume, canonicalExerciseId, createRunningRest, createSession, mergeExerciseCatalog, nextSetDraft, recordingModeForSet, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise } from "../core.js";
+import { EXERCISE_REFERENCES, FALLBACK_EXERCISES, LEGACY_EXERCISE_ID_MAP, adjustRest, applyRecordingMode, buildBodyCandidate, calculateSetVolume, canonicalExerciseId, changeWeightUnit, createRunningRest, createSession, decisiveWatchCandidate, mergeExerciseCatalog, nextSetDraft, recordingModeForSet, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise } from "../core.js";
 
 const base = { exerciseId: "press", exerciseName: "哑铃推胸", weightValue: 10, weightUnit: "kg", reps: 12, completedAt: "2026-07-15T21:00:00+08:00", restSeconds: 90 };
 
@@ -22,6 +22,24 @@ test("one recording-mode field owns load and side semantics", () => {
   assert.equal(recordingModeForSet(right), "per_limb_right");
   assert.equal(nextSetDraft(right).side, "left");
   assert.equal(nextSetDraft(nextSetDraft(right)).side, "right");
+});
+
+test("unit changes convert the value instead of silently reinterpreting it", () => {
+  const pounds = changeWeightUnit({ ...base, weightValue: 12.5 }, "lb");
+  assert.equal(pounds.weightUnit, "lb");
+  assert.equal(pounds.weightValue, 27.56);
+  const kilograms = changeWeightUnit(pounds, "kg");
+  assert.equal(kilograms.weightUnit, "kg");
+  assert.equal(kilograms.weightValue, 12.5);
+});
+
+test("one strong Watch interval wins even when other same-day candidates exist", () => {
+  const candidates = [
+    { workoutId: "exact", matchConfidence: .96, reason: ["same_date", "message_time_within_workout", "strength_training_type"] },
+    { workoutId: "other", matchConfidence: .51, reason: ["same_date", "strength_training_type"] },
+  ];
+  assert.equal(decisiveWatchCandidate(candidates)?.workoutId, "exact");
+  assert.equal(decisiveWatchCandidate([candidates[0], { ...candidates[0], workoutId: "ambiguous" }]), null);
 });
 
 test("pounds are converted to kg for volume", () => assert.ok(Math.abs(calculateSetVolume({ ...base, weightValue: 20, weightUnit: "lb", loadMode: "total", reps: 10 }) - 90.718474) < 0.000001));

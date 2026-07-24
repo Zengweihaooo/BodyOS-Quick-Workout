@@ -215,6 +215,24 @@ export function nextSetDraft(input) {
   return normalizeSet({ ...input, side, id: "", completedAt: "" });
 }
 
+export function changeWeightUnit(input, targetUnit) {
+  const sourceUnit = input.weightUnit === "lb" ? "lb" : "kg";
+  const nextUnit = targetUnit === "lb" ? "lb" : "kg";
+  if (sourceUnit === nextUnit) return normalizeSet({ ...input, weightUnit: nextUnit });
+  const factor = sourceUnit === "kg" ? 2.2046226218 : 0.45359237;
+  const weightValue = Math.round(number(input.weightValue, 0) * factor * 100) / 100;
+  return normalizeSet({ ...input, weightValue, weightUnit: nextUnit });
+}
+
+export function decisiveWatchCandidate(candidates, threshold = .9) {
+  const credible = (Array.isArray(candidates) ? candidates : []).filter((item) => (
+    number(item?.matchConfidence, 0) >= threshold
+    && (item?.reason || []).includes("message_time_within_workout")
+    && (item?.reason || []).includes("strength_training_type")
+  ));
+  return credible.length === 1 ? credible[0] : null;
+}
+
 export function calculateSetVolume(set, bodyWeight = null) {
   const reps = number(set.reps, 0); const factor = set.weightUnit === "lb" ? 0.45359237 : 1; const weight = number(set.weightValue, 0) * factor;
   if (!reps) return 0;
