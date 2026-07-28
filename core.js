@@ -215,6 +215,31 @@ export function nextSetDraft(input) {
   return normalizeSet({ ...input, side, id: "", completedAt: "" });
 }
 
+export function draftFromExerciseDefault(exercise, cached = null) {
+  const unilateral = exercise.loadMode === "per_limb" && exercise.executionMode === "unilateral";
+  const source = cached && typeof cached === "object" ? cached : {};
+  return normalizeSet({
+    exerciseId: exercise.id,
+    exerciseName: exercise.name,
+    canonicalNameEn: exercise.canonicalNameEn,
+    equipment: exercise.equipment,
+    movementPattern: exercise.movementPattern,
+    loadMode: source.loadMode || exercise.loadMode,
+    executionMode: source.executionMode || exercise.executionMode,
+    sideCount: source.sideCount || exercise.sideCount,
+    weightValue: source.weightValue ?? 10,
+    weightUnit: source.weightUnit || "kg",
+    reps: source.reps ?? 10,
+    rir: source.rir ?? 2,
+    rpe: source.rpe ?? null,
+    restSeconds: source.restSeconds ?? 120,
+    side: unilateral ? "right" : "both",
+    gripWidth: source.gripWidth || "",
+    gripOrientation: source.gripOrientation || "",
+    notes: "",
+  });
+}
+
 export function changeWeightUnit(input, targetUnit) {
   const sourceUnit = input.weightUnit === "lb" ? "lb" : "kg";
   const nextUnit = targetUnit === "lb" ? "lb" : "kg";
@@ -288,6 +313,45 @@ export function sessionSummary(session) {
     exerciseCount: exercises.size, setCount: session.sets.length, reps: session.sets.reduce((sum, set) => sum + number(set.reps, 0), 0),
     volume: Math.round(volumes.reduce((sum, value) => sum + value, 0) * 10) / 10,
     durationMinutes: Math.max(0, Math.round(timerElapsedMs(session) / 60000)),
+  };
+}
+
+function historyExerciseSummary(exercise = {}) {
+  const sets = Array.isArray(exercise.sets) ? exercise.sets : [];
+  const volume = sets.reduce((sum, set) => sum + number(set.calculated_volume, 0), 0);
+  const maxWeight = sets.reduce((best, set) => Math.max(best, number(set.weight_value, number(set.weight_kg, 0))), 0);
+  return {
+    exerciseId: exercise.exerciseId || "",
+    name: exercise.name || "",
+    setCount: sets.length,
+    reps: sets.reduce((sum, set) => sum + number(set.reps, 0), 0),
+    volume: Math.round(volume * 10) / 10,
+    maxWeight,
+    weightUnit: sets.find((set) => set.weight_unit)?.weight_unit || "kg",
+  };
+}
+
+export function compareWorkoutHistory(current, previous = null) {
+  const currentExercises = (current?.exercises || []).map(historyExerciseSummary);
+  const previousById = new Map((previous?.exercises || []).map((item) => {
+    const summary = historyExerciseSummary(item);
+    return [summary.exerciseId, summary];
+  }));
+  const currentSummary = current?.summary || {};
+  const previousSummary = previous?.summary || {};
+  return {
+    volumeDelta: Math.round((number(currentSummary.volume, 0) - number(previousSummary.volume, 0)) * 10) / 10,
+    setDelta: number(currentSummary.setCount, 0) - number(previousSummary.setCount, 0),
+    repsDelta: number(currentSummary.reps, 0) - number(previousSummary.reps, 0),
+    exercises: currentExercises.map((item) => {
+      const prior = previousById.get(item.exerciseId);
+      return {
+        ...item,
+        previous: prior || null,
+        volumeDelta: Math.round((item.volume - number(prior?.volume, 0)) * 10) / 10,
+        maxWeightDelta: Math.round((item.maxWeight - number(prior?.maxWeight, 0)) * 100) / 100,
+      };
+    }),
   };
 }
 

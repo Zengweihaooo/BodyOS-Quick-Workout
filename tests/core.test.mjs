@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { EXERCISE_REFERENCES, FALLBACK_EXERCISES, LEGACY_EXERCISE_ID_MAP, adjustRest, applyRecordingMode, buildBodyCandidate, calculateSetVolume, canonicalExerciseId, changeWeightUnit, createRunningRest, createSession, decisiveWatchCandidate, mergeExerciseCatalog, nextSetDraft, recordingModeForSet, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise } from "../core.js";
+import { EXERCISE_REFERENCES, FALLBACK_EXERCISES, LEGACY_EXERCISE_ID_MAP, adjustRest, applyRecordingMode, buildBodyCandidate, calculateSetVolume, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, mergeExerciseCatalog, nextSetDraft, recordingModeForSet, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise } from "../core.js";
 
 const base = { exerciseId: "press", exerciseName: "哑铃推胸", weightValue: 10, weightUnit: "kg", reps: 12, completedAt: "2026-07-15T21:00:00+08:00", restSeconds: 90 };
 
@@ -31,6 +31,22 @@ test("unit changes convert the value instead of silently reinterpreting it", () 
   const kilograms = changeWeightUnit(pounds, "kg");
   assert.equal(kilograms.weightUnit, "kg");
   assert.equal(kilograms.weightValue, 12.5);
+});
+
+test("Body OS exercise defaults prefill the first set instead of generic values", () => {
+  const exercise = { id: "press", name: "推胸", canonicalNameEn: "Press", equipment: "器械", movementPattern: "horizontal_push", loadMode: "total", executionMode: "bilateral", sideCount: 1 };
+  const draft = draftFromExerciseDefault(exercise, { weightValue: 42.5, weightUnit: "kg", reps: 8, rir: 1, restSeconds: 150, loadMode: "total" });
+  assert.deepEqual({ weight: draft.weightValue, reps: draft.reps, rir: draft.rir, rest: draft.restSeconds }, { weight: 42.5, reps: 8, rir: 1, rest: 150 });
+});
+
+test("history comparison reports total and per-exercise progress", () => {
+  const previous = { summary: { volume: 1000, setCount: 3, reps: 30 }, exercises: [{ exerciseId: "press", name: "推胸", sets: [{ weight_value: 40, weight_unit: "kg", reps: 10, calculated_volume: 400 }] }] };
+  const current = { summary: { volume: 1240, setCount: 4, reps: 36 }, exercises: [{ exerciseId: "press", name: "推胸", sets: [{ weight_value: 45, weight_unit: "kg", reps: 10, calculated_volume: 450 }] }] };
+  const comparison = compareWorkoutHistory(current, previous);
+  assert.equal(comparison.volumeDelta, 240);
+  assert.equal(comparison.setDelta, 1);
+  assert.equal(comparison.exercises[0].maxWeightDelta, 5);
+  assert.equal(comparison.exercises[0].volumeDelta, 50);
 });
 
 test("one strong Watch interval wins even when other same-day candidates exist", () => {

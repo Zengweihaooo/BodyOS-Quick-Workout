@@ -48,3 +48,27 @@ create policy "owners can update workout uploads" on public.body_os_workout_uplo
 drop policy if exists "owners can delete workout uploads" on public.body_os_workout_uploads;
 create policy "owners can delete workout uploads" on public.body_os_workout_uploads for delete to authenticated
   using ((select auth.uid()) = owner_id and exists (select 1 from public.body_os_allowed_users where user_id = (select auth.uid())));
+
+-- Body OS publishes one owner-scoped, training-only projection for GitHub
+-- Pages.  The payload deliberately excludes medical records, medications and
+-- attachments; it contains only today's plan, exercise defaults and workout
+-- history.  Browsers may read but never write this table.
+create table if not exists public.body_os_training_snapshots (
+  owner_id uuid primary key references auth.users(id) on delete cascade,
+  schema_version text not null check (schema_version = 'body.os.training-snapshot.v1'),
+  payload jsonb not null check (jsonb_typeof(payload) = 'object'),
+  generated_at timestamptz not null,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.body_os_training_snapshots enable row level security;
+revoke all on table public.body_os_training_snapshots from anon;
+revoke insert, update, delete on table public.body_os_training_snapshots from authenticated;
+grant select on table public.body_os_training_snapshots to authenticated;
+grant select, insert, update, delete on table public.body_os_training_snapshots to service_role;
+
+drop policy if exists "owners can read training snapshot" on public.body_os_training_snapshots;
+create policy "owners can read training snapshot" on public.body_os_training_snapshots for select to authenticated
+  using ((select auth.uid()) = owner_id and exists (
+    select 1 from public.body_os_allowed_users where user_id = (select auth.uid())
+  ));
