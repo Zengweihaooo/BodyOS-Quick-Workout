@@ -19,6 +19,8 @@
 - 520px 以下使用单栏重量/次数卡片，保证多位数字在手机浏览器中完整显示。
 - GitHub Pages 上点击“复制 Body.OS JSON”，再粘贴到 Body.OS 的“智能训练捕获”。JSON 会绕过 AI 二次解析并直接进入结构化确认。
 - GitHub Pages 已预置 BodyOS 的 Supabase Project URL 与公开 anon key，也可在训练总结中覆盖配置；使用 Supabase Auth 邮箱密码登录后即可幂等上传。密码不会持久化；数据库写入由 RLS 约束到登录用户，公开网页和 anon 角色均不能写入。
+- 登录后会读取 Body.OS 发布的训练专用快照：首页显示今日推荐计划；第一次打开动作时带入最近一次训练中使用的最大重量、次数、组数和休息参数；“训练历史”可逐次查看并与上一场包含相同动作的训练比较。
+- 双向同步只经过 Supabase：Pages 把新训练写入 `body_os_workout_uploads`，Body.OS 导入后把今日计划、最近动作参数与最近 120 次结构化训练发布到 `body_os_training_snapshots`。快照不包含病历、药物、附件或其他健康档案。
 - 本地同源运行时仍可使用“一键导入 Body.OS”，沿用 `workout-capture/recognize` → Apple Watch 场次选择 → `workout-capture/confirm`。
 
 本地访问：`http://127.0.0.1:8766/quick-workout/`。
@@ -29,10 +31,10 @@
 
 ## Supabase
 
-1. 在 Supabase SQL Editor 执行 [`supabase/schema.sql`](supabase/schema.sql)。脚本会创建 allowlist 与 `body_os_workout_uploads`、启用 RLS，并明确撤销 `anon` 的表权限。
+1. 在 Supabase SQL Editor 执行 [`supabase/schema.sql`](supabase/schema.sql)。脚本会创建 allowlist、训练上传表与训练快照表，启用 RLS，并明确撤销 `anon` 的表权限。
 2. 在 Authentication 创建自己的邮箱密码用户，关闭公开注册，再按 SQL 脚本中的注释把该用户加入 `body_os_allowed_users`。没有进入 allowlist 的账号即使成功注册也不能写入。
 3. 打开 PWA 的训练总结 →「上传到 Supabase」，填写 Project URL 和 publishable/anon key，再登录并上传。
-4. Body.OS 本地端设置 `BODY_OS_SUPABASE_URL`、`BODY_OS_SUPABASE_SECRET_KEY`（或旧 `SERVICE_ROLE_KEY`）与 `BODY_OS_SUPABASE_USER_ID` 后，会在启动时及后台轮询该用户的未导入训练。后端密钥只能保存在本机，绝不能写入本仓库或 GitHub Pages。
+4. Body.OS 本地端设置 `BODY_OS_SUPABASE_URL`、`BODY_OS_SUPABASE_SECRET_KEY`（或旧 `SERVICE_ROLE_KEY`）与 `BODY_OS_SUPABASE_USER_ID` 后，会在启动时及后台轮询该用户的未导入训练，并刷新训练快照。后端密钥只能保存在本机，绝不能写入本仓库或 GitHub Pages。
 
 ## 外部资料与许可
 

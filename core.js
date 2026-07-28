@@ -186,6 +186,78 @@ export function normalizeSet(input) {
   };
 }
 
+export function recordingModeForSet(input = {}) {
+  if (input.loadMode !== "per_limb") return input.loadMode || "total";
+  if (input.side === "left" || input.side === "right") return `per_limb_${input.side}`;
+  if (input.side === "alternating") return "per_limb_alternating";
+  return "per_limb_both";
+}
+
+export function applyRecordingMode(input, recordingMode) {
+  const next = { ...input };
+  if (recordingMode.startsWith("per_limb_")) {
+    next.loadMode = "per_limb";
+    next.side = recordingMode.slice("per_limb_".length);
+    next.executionMode = ["left", "right", "alternating"].includes(next.side) ? "unilateral" : "bilateral_simultaneous";
+    next.sideCount = ["left", "right"].includes(next.side) ? 1 : 2;
+    return next;
+  }
+  next.loadMode = ["total", "per_side", "assistance"].includes(recordingMode) ? recordingMode : "total";
+  next.side = "both";
+  next.executionMode = next.loadMode === "per_side" ? "bilateral_simultaneous" : "bilateral";
+  next.sideCount = next.loadMode === "per_side" ? 2 : 1;
+  return next;
+}
+
+export function nextSetDraft(input) {
+  const side = input.loadMode === "per_limb" && input.side === "right" ? "left"
+    : input.loadMode === "per_limb" && input.side === "left" ? "right" : input.side;
+  return normalizeSet({ ...input, side, id: "", completedAt: "" });
+}
+
+export function draftFromExerciseDefault(exercise, cached = null) {
+  const unilateral = exercise.loadMode === "per_limb" && exercise.executionMode === "unilateral";
+  const source = cached && typeof cached === "object" ? cached : {};
+  return normalizeSet({
+    exerciseId: exercise.id,
+    exerciseName: exercise.name,
+    canonicalNameEn: exercise.canonicalNameEn,
+    equipment: exercise.equipment,
+    movementPattern: exercise.movementPattern,
+    loadMode: source.loadMode || exercise.loadMode,
+    executionMode: source.executionMode || exercise.executionMode,
+    sideCount: source.sideCount || exercise.sideCount,
+    weightValue: source.weightValue ?? 10,
+    weightUnit: source.weightUnit || "kg",
+    reps: source.reps ?? 10,
+    rir: source.rir ?? 2,
+    rpe: source.rpe ?? null,
+    restSeconds: source.restSeconds ?? 120,
+    side: unilateral ? "right" : "both",
+    gripWidth: source.gripWidth || "",
+    gripOrientation: source.gripOrientation || "",
+    notes: "",
+  });
+}
+
+export function changeWeightUnit(input, targetUnit) {
+  const sourceUnit = input.weightUnit === "lb" ? "lb" : "kg";
+  const nextUnit = targetUnit === "lb" ? "lb" : "kg";
+  if (sourceUnit === nextUnit) return normalizeSet({ ...input, weightUnit: nextUnit });
+  const factor = sourceUnit === "kg" ? 2.2046226218 : 0.45359237;
+  const weightValue = Math.round(number(input.weightValue, 0) * factor * 100) / 100;
+  return normalizeSet({ ...input, weightValue, weightUnit: nextUnit });
+}
+
+export function decisiveWatchCandidate(candidates, threshold = .9) {
+  const credible = (Array.isArray(candidates) ? candidates : []).filter((item) => (
+    number(item?.matchConfidence, 0) >= threshold
+    && (item?.reason || []).includes("message_time_within_workout")
+    && (item?.reason || []).includes("strength_training_type")
+  ));
+  return credible.length === 1 ? credible[0] : null;
+}
+
 export function calculateSetVolume(set, bodyWeight = null) {
   const reps = number(set.reps, 0); const factor = set.weightUnit === "lb" ? 0.45359237 : 1; const weight = number(set.weightValue, 0) * factor;
   if (!reps) return 0;
@@ -208,6 +280,23 @@ export function restRemainingSeconds(rest, nowMs = Date.now()) {
   return Math.max(0, Math.ceil(number(rest.remainingSeconds, rest.durationSeconds || 0)));
 }
 
+export function createRunningRest(durationSeconds = 120, nowMs = Date.now()) {
+  const duration = Math.max(0, Math.round(Number(durationSeconds) || 0));
+  return { durationSeconds: duration, remainingSeconds: duration, running: duration > 0, endsAt: duration > 0 ? nowMs + duration * 1000 : null };
+}
+
+export function adjustRest(rest, deltaSeconds, nowMs = Date.now()) {
+  if (!rest) return null;
+  const remaining = Math.max(0, restRemainingSeconds(rest, nowMs) + Number(deltaSeconds || 0));
+  if (!remaining) return null;
+  return {
+    ...rest,
+    durationSeconds: Math.max(Number(rest.durationSeconds || 0), remaining),
+    remainingSeconds: remaining,
+    endsAt: rest.running ? nowMs + remaining * 1000 : null,
+  };
+}
+
 export function withoutExercise(session, exerciseId) {
   return {
     ...session,
@@ -224,6 +313,45 @@ export function sessionSummary(session) {
     exerciseCount: exercises.size, setCount: session.sets.length, reps: session.sets.reduce((sum, set) => sum + number(set.reps, 0), 0),
     volume: Math.round(volumes.reduce((sum, value) => sum + value, 0) * 10) / 10,
     durationMinutes: Math.max(0, Math.round(timerElapsedMs(session) / 60000)),
+  };
+}
+
+function historyExerciseSummary(exercise = {}) {
+  const sets = Array.isArray(exercise.sets) ? exercise.sets : [];
+  const volume = sets.reduce((sum, set) => sum + number(set.calculated_volume, 0), 0);
+  const maxWeight = sets.reduce((best, set) => Math.max(best, number(set.weight_value, number(set.weight_kg, 0))), 0);
+  return {
+    exerciseId: exercise.exerciseId || "",
+    name: exercise.name || "",
+    setCount: sets.length,
+    reps: sets.reduce((sum, set) => sum + number(set.reps, 0), 0),
+    volume: Math.round(volume * 10) / 10,
+    maxWeight,
+    weightUnit: sets.find((set) => set.weight_unit)?.weight_unit || "kg",
+  };
+}
+
+export function compareWorkoutHistory(current, previous = null) {
+  const currentExercises = (current?.exercises || []).map(historyExerciseSummary);
+  const previousById = new Map((previous?.exercises || []).map((item) => {
+    const summary = historyExerciseSummary(item);
+    return [summary.exerciseId, summary];
+  }));
+  const currentSummary = current?.summary || {};
+  const previousSummary = previous?.summary || {};
+  return {
+    volumeDelta: Math.round((number(currentSummary.volume, 0) - number(previousSummary.volume, 0)) * 10) / 10,
+    setDelta: number(currentSummary.setCount, 0) - number(previousSummary.setCount, 0),
+    repsDelta: number(currentSummary.reps, 0) - number(previousSummary.reps, 0),
+    exercises: currentExercises.map((item) => {
+      const prior = previousById.get(item.exerciseId);
+      return {
+        ...item,
+        previous: prior || null,
+        volumeDelta: Math.round((item.volume - number(prior?.volume, 0)) * 10) / 10,
+        maxWeightDelta: Math.round((item.maxWeight - number(prior?.maxWeight, 0)) * 100) / 100,
+      };
+    }),
   };
 }
 
@@ -281,7 +409,8 @@ export function toMarkdown(session) {
     const time = new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(set.completedAt));
     const gripWidth = { wide: "宽距", medium: "中距", close: "窄距" }[set.gripWidth] || "";
     const gripOrientation = { pronated: "正握", supinated: "反握", neutral: "对握" }[set.gripOrientation] || "";
-    const extras = [gripWidth, gripOrientation, set.rir != null ? `RIR ${set.rir}` : "", set.rpe != null ? `RPE ${set.rpe}` : "", set.rer != null ? `RER ${set.rer}` : "", set.notes || ""].filter(Boolean).join(" · ");
+    const side = ({ left: "左侧", right: "右侧", alternating: "左右交替" })[set.side] || "";
+    const extras = [side, gripWidth, gripOrientation, set.rir != null ? `RIR ${set.rir}` : "", set.rpe != null ? `RPE ${set.rpe}` : "", set.rer != null ? `RER ${set.rer}` : "", set.notes || ""].filter(Boolean).join(" · ");
     lines.push(`- ${time} ${LOAD_LABELS[set.loadMode] || "重量"} ${set.weightValue}${set.weightUnit || "kg"} × ${set.reps} 次${extras ? ` · ${extras}` : ""}`);
   });
   return lines.join("\n");

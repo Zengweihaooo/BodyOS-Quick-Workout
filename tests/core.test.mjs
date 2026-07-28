@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { EXERCISE_REFERENCES, FALLBACK_EXERCISES, LEGACY_EXERCISE_ID_MAP, buildBodyCandidate, calculateSetVolume, canonicalExerciseId, createSession, mergeExerciseCatalog, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise } from "../core.js";
+import { EXERCISE_REFERENCES, FALLBACK_EXERCISES, LEGACY_EXERCISE_ID_MAP, adjustRest, applyRecordingMode, buildBodyCandidate, calculateSetVolume, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, mergeExerciseCatalog, nextSetDraft, recordingModeForSet, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise } from "../core.js";
 
 const base = { exerciseId: "press", exerciseName: "哑铃推胸", weightValue: 10, weightUnit: "kg", reps: 12, completedAt: "2026-07-15T21:00:00+08:00", restSeconds: 90 };
 
@@ -16,6 +16,48 @@ test("asymmetric limbs use each side", () => assert.equal(calculateSetVolume({ .
 
 test("one-sided work is not doubled", () => assert.equal(calculateSetVolume({ ...base, loadMode: "per_limb", side: "left", sideCount: 1 }), 120));
 
+test("one recording-mode field owns load and side semantics", () => {
+  const right = applyRecordingMode(base, "per_limb_right");
+  assert.deepEqual({ mode: right.loadMode, side: right.side, execution: right.executionMode, count: right.sideCount }, { mode: "per_limb", side: "right", execution: "unilateral", count: 1 });
+  assert.equal(recordingModeForSet(right), "per_limb_right");
+  assert.equal(nextSetDraft(right).side, "left");
+  assert.equal(nextSetDraft(nextSetDraft(right)).side, "right");
+});
+
+test("unit changes convert the value instead of silently reinterpreting it", () => {
+  const pounds = changeWeightUnit({ ...base, weightValue: 12.5 }, "lb");
+  assert.equal(pounds.weightUnit, "lb");
+  assert.equal(pounds.weightValue, 27.56);
+  const kilograms = changeWeightUnit(pounds, "kg");
+  assert.equal(kilograms.weightUnit, "kg");
+  assert.equal(kilograms.weightValue, 12.5);
+});
+
+test("Body OS exercise defaults prefill the first set instead of generic values", () => {
+  const exercise = { id: "press", name: "推胸", canonicalNameEn: "Press", equipment: "器械", movementPattern: "horizontal_push", loadMode: "total", executionMode: "bilateral", sideCount: 1 };
+  const draft = draftFromExerciseDefault(exercise, { weightValue: 42.5, weightUnit: "kg", reps: 8, rir: 1, restSeconds: 150, loadMode: "total" });
+  assert.deepEqual({ weight: draft.weightValue, reps: draft.reps, rir: draft.rir, rest: draft.restSeconds }, { weight: 42.5, reps: 8, rir: 1, rest: 150 });
+});
+
+test("history comparison reports total and per-exercise progress", () => {
+  const previous = { summary: { volume: 1000, setCount: 3, reps: 30 }, exercises: [{ exerciseId: "press", name: "推胸", sets: [{ weight_value: 40, weight_unit: "kg", reps: 10, calculated_volume: 400 }] }] };
+  const current = { summary: { volume: 1240, setCount: 4, reps: 36 }, exercises: [{ exerciseId: "press", name: "推胸", sets: [{ weight_value: 45, weight_unit: "kg", reps: 10, calculated_volume: 450 }] }] };
+  const comparison = compareWorkoutHistory(current, previous);
+  assert.equal(comparison.volumeDelta, 240);
+  assert.equal(comparison.setDelta, 1);
+  assert.equal(comparison.exercises[0].maxWeightDelta, 5);
+  assert.equal(comparison.exercises[0].volumeDelta, 50);
+});
+
+test("one strong Watch interval wins even when other same-day candidates exist", () => {
+  const candidates = [
+    { workoutId: "exact", matchConfidence: .96, reason: ["same_date", "message_time_within_workout", "strength_training_type"] },
+    { workoutId: "other", matchConfidence: .51, reason: ["same_date", "strength_training_type"] },
+  ];
+  assert.equal(decisiveWatchCandidate(candidates)?.workoutId, "exact");
+  assert.equal(decisiveWatchCandidate([candidates[0], { ...candidates[0], workoutId: "ambiguous" }]), null);
+});
+
 test("pounds are converted to kg for volume", () => assert.ok(Math.abs(calculateSetVolume({ ...base, weightValue: 20, weightUnit: "lb", loadMode: "total", reps: 10 }) - 90.718474) < 0.000001));
 
 test("manual timers only advance while running", () => {
@@ -25,6 +67,14 @@ test("manual timers only advance while running", () => {
   assert.equal(timerElapsedMs(session, 9000), 7000);
   assert.equal(restRemainingSeconds({ running: false, remainingSeconds: 90 }, 9000), 90);
   assert.equal(restRemainingSeconds({ running: true, endsAt: 19000 }, 9000), 10);
+});
+
+test("saved sets start a two-minute rest that can move by 30 seconds", () => {
+  const rest = createRunningRest(120, 1000);
+  assert.deepEqual(rest, { durationSeconds: 120, remainingSeconds: 120, running: true, endsAt: 121000 });
+  assert.equal(restRemainingSeconds(adjustRest(rest, -30, 1000), 1000), 90);
+  assert.equal(restRemainingSeconds(adjustRest(rest, 30, 1000), 1000), 150);
+  assert.equal(adjustRest(createRunningRest(30, 1000), -30, 1000), null);
 });
 
 test("deleting an exercise removes all of its sets and clears its rest", () => {

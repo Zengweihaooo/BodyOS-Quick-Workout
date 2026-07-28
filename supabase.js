@@ -47,6 +47,8 @@ export async function uploadWorkout(config, session, workoutExport) {
     schema_version: String(workoutExport.schemaVersion || ""),
     session_started_at: workoutExport.session.startedAt,
     payload: workoutExport,
+    imported_at: null,
+    imported_workout_id: null,
     updated_at: new Date().toISOString(),
   };
   return request(config, "/rest/v1/body_os_workout_uploads?on_conflict=owner_id,client_session_id", {
@@ -54,4 +56,18 @@ export async function uploadWorkout(config, session, workoutExport) {
     headers: { Authorization: `Bearer ${session.access_token}`, Prefer: "resolution=merge-duplicates,return=representation" },
     body: JSON.stringify(row),
   });
+}
+
+export async function fetchTrainingSnapshot(config, session) {
+  if (!session?.access_token || !session?.user?.id) throw new Error("请先登录 Supabase");
+  const owner = encodeURIComponent(session.user.id);
+  const rows = await request(
+    config,
+    `/rest/v1/body_os_training_snapshots?select=payload,generated_at&owner_id=eq.${owner}&limit=1`,
+    { headers: { Authorization: `Bearer ${session.access_token}` } },
+  );
+  const row = Array.isArray(rows) ? rows[0] : null;
+  return row?.payload && typeof row.payload === "object"
+    ? { ...row.payload, generatedAt: row.payload.generatedAt || row.generated_at }
+    : null;
 }
