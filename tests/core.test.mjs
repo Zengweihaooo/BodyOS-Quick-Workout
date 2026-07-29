@@ -117,8 +117,8 @@ test("legacy action ids migrate to Body OS canonical ids", () => {
 });
 
 test("reviewed Body OS references use allowlisted URLs and separated sources", () => {
-  assert.equal(Object.keys(EXERCISE_REFERENCES).length, 53);
-  assert.equal(new Set(Object.values(EXERCISE_REFERENCES).map((item) => item.datasetId)).size, 53);
+  assert.equal(Object.keys(EXERCISE_REFERENCES).length, 54);
+  assert.equal(new Set(Object.values(EXERCISE_REFERENCES).map((item) => item.datasetId)).size, 54);
   assert.ok(Object.keys(EXERCISE_REFERENCES).every((id) => FALLBACK_EXERCISES.some((item) => item.id === id)));
   for (const [id, reference] of Object.entries(EXERCISE_REFERENCES)) {
     const gif = new URL(reference.gifUrl);
@@ -154,11 +154,14 @@ test("mobile catalog contains the history-critical machine actions", () => {
   assert.equal(EXERCISE_REFERENCES.seated_dumbbell_lateral_raise.wger.id, 918);
   assert.equal(EXERCISE_REFERENCES.machine_reverse_fly.datasetId, "0602");
   assert.equal(EXERCISE_REFERENCES.machine_reverse_fly.wger.id, 2464);
+  assert.equal(EXERCISE_REFERENCES.machine_lateral_raise.datasetId, "0584");
+  assert.equal(EXERCISE_REFERENCES.machine_lateral_raise.wger.id, 1744);
   assert.equal(EXERCISE_REFERENCES.face_pull.wger.id, 222);
   const names = Object.fromEntries(FALLBACK_EXERCISES.map((item) => [item.id, [item.name, item.canonicalNameEn]]));
   assert.deepEqual(names.single_arm_cable_lateral_raise, ["绳索侧平举", "Cable Lateral Raise"]);
   assert.deepEqual(names.seated_dumbbell_lateral_raise, ["坐姿哑铃侧平举", "Seated Dumbbell Lateral Raise"]);
   assert.deepEqual(names.machine_reverse_fly, ["反向飞鸟（器械）", "Rear Delt Fly Machine"]);
+  assert.deepEqual(names.machine_lateral_raise, ["侧平举器械", "Machine Lateral Raise"]);
   assert.deepEqual(names.face_pull, ["面拉", "Face Pull"]);
   assert.equal(EXERCISE_REFERENCES.cable_front_raise.wger.id, 1731);
   assert.equal(EXERCISE_REFERENCES.dead_bug.wger.id, 178);

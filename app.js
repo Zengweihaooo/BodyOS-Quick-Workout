@@ -1,8 +1,8 @@
-import { EXERCISE_CATALOG_VERSION, EXERCISE_REFERENCES, FALLBACK_EXERCISES, LOAD_LABELS, adjustRest, applyRecordingMode, buildBodyCandidate, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createExport, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, mergeExerciseCatalog, nextSetDraft, normalizeSet, recordingModeForSet, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise } from "./core.js?v=12";
+import { EXERCISE_CATALOG_VERSION, EXERCISE_REFERENCES, FALLBACK_EXERCISES, LOAD_LABELS, adjustRest, applyRecordingMode, buildBodyCandidate, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createExport, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, mergeExerciseCatalog, nextSetDraft, normalizeSet, recordingModeForSet, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise } from "./core.js?v=13";
 import { fetchTrainingSnapshot, normalizeSupabaseConfig, refreshSession, sessionIsFresh, signInWithPassword, uploadWorkout } from "./supabase.js?v=2";
 
 const $ = (selector, root = document) => root.querySelector(selector);
-const app = $("#app"), bottomBar = $("#bottomBar"), backButton = $("#backButton"), title = $("#screenTitle"), status = $("#networkStatus");
+const app = $("#app"), bottomBar = $("#bottomBar"), backButton = $("#backButton"), title = $("#screenTitle"), status = $("#networkStatus"), quickFinish = $("#quickFinish");
 const DEFAULT_SUPABASE_CONFIG = Object.freeze(normalizeSupabaseConfig({
   url: "https://zvmesprbvoakonvxzpaj.supabase.co",
   anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp2bWVzcHJidm9ha29udnh6cGFqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ1NTM1MjUsImV4cCI6MjEwMDEyOTUyNX0.kyXsxN72XkE7t9F8lbu4IaYiuJD7v8Xw1kkn3AlBmaM",
@@ -26,7 +26,7 @@ const TRAINING_PRESETS = [
   { key: "chest_balanced", group: "chest", title: "胸部平衡", note: "平板推 · 上斜推 · 夹胸", ids: ["dumbbell_flat_chest_press","dumbbell_incline_chest_press","cable_chest_fly"] },
   { key: "back_complete", group: "back", title: "背部完整", note: "垂直拉 · 水平拉 · 肩伸展", ids: ["assisted_close_grip_pull_up","neutral_grip_lat_pulldown","machine_row","straight_arm_pulldown"] },
 ];
-let state = { session: null, exercises: BASE_EXERCISES, screen: "home", draft: null, editingSetIndex: -1, selectedWatch: "", watchCandidates: [], importing: false, resetArmed: false, locale: "zh", pickerPresetKey: "", historyWorkoutId: "", training: { snapshot: null, busy: false, error: "" }, cloud: { config: null, session: null, busy: false } };
+let state = { session: null, exercises: BASE_EXERCISES, screen: "home", draft: null, editingSetIndex: -1, selectedWatch: "", watchCandidates: [], importing: false, resetArmed: false, locale: "zh", pickerPresetKey: "", historyWorkoutId: "", historyMode: "workouts", historyExerciseId: "", training: { snapshot: null, busy: false, error: "" }, cloud: { config: null, session: null, busy: false } };
 let tickTimer = null, toastTimer = null, resetArmTimer = null;
 const canDirectBodyOs = location.pathname.startsWith("/quick-workout/") && !location.hostname.endsWith("github.io") && location.protocol !== "file:";
 
@@ -133,6 +133,8 @@ function sessionOverviewMarkup(activeId) {
 function render() {
   clearInterval(tickTimer); app.innerHTML = ""; bottomBar.innerHTML = "";
   if (state.screen === "picker") renderPicker(); else if (state.screen === "custom") renderCustomExercise(); else if (state.screen === "entry") renderEntry(); else if (state.screen === "summary") renderSummary(); else if (state.screen === "watch") renderWatch(); else if (state.screen === "cloud") renderCloud(); else if (state.screen === "history") renderHistory(); else renderHome();
+  const activeTrainingScreen = ["home", "picker", "custom", "entry"].includes(state.screen);
+  quickFinish.classList.toggle("hidden", !activeTrainingScreen || !state.session.sets.length);
   tickTimer = setInterval(updateClocks, 1000); updateClocks();
 }
 
@@ -351,6 +353,44 @@ function previousComparableWorkout(history, index) {
   return history.slice(index + 1).find((item) => (item.exercises || []).some((exercise) => currentIds.has(exercise.exerciseId))) || history[index + 1] || null;
 }
 
+function exerciseHistoryGroups(history) {
+  const groups = new Map();
+  history.forEach((workout) => (workout.exercises || []).forEach((exercise) => {
+    const id = canonicalExerciseId(exercise.exerciseId);
+    if (!id || !(exercise.sets || []).length) return;
+    const group = groups.get(id) || { id, name: exercise.name || id, records: [], sets: 0, reps: 0, volume: 0 };
+    const sets = exercise.sets || [];
+    const record = {
+      workoutId: workout.id, startedAt: workout.startedAt, activityType: workout.activityType,
+      sets, setCount: sets.length,
+      reps: sets.reduce((sum, set) => sum + Number(set.reps || 0), 0),
+      volume: sets.reduce((sum, set) => sum + Number(set.calculated_volume || 0), 0),
+    };
+    group.records.push(record); group.sets += record.setCount; group.reps += record.reps; group.volume += record.volume;
+    groups.set(id, group);
+  }));
+  return [...groups.values()].sort((a, b) => new Date(b.records[0].startedAt) - new Date(a.records[0].startedAt));
+}
+
+function renderExerciseHistory(history) {
+  const groups = exerciseHistoryGroups(history);
+  const active = groups.find((item) => item.id === state.historyExerciseId);
+  if (active) {
+    app.innerHTML = `<section class="history-detail-hero"><span class="label">历史动作库</span><h2>${escapeHTML(active.name)}</h2><div class="metrics"><div class="metric"><span class="label">训练次数</span><strong>${active.records.length}</strong></div><div class="metric"><span class="label">总组数</span><strong>${active.sets}</strong></div><div class="metric"><span class="label">总容量</span><strong>${Math.round(active.volume * 10) / 10}</strong><small>kg·次</small></div></div><p>按时间倒序展示全部 ${active.reps} 次重复。</p></section>
+    <section class="section"><div class="section-head"><h2>历史训练记录</h2><span class="label">最新优先</span></div><div class="exercise-history-records">${active.records.map((record) => `<article><header><div><strong>${new Intl.DateTimeFormat("zh-CN",{year:"numeric",month:"short",day:"numeric"}).format(new Date(record.startedAt))}</strong><small>${escapeHTML(record.activityType || "力量训练")}</small></div><span>${record.setCount} 组 · ${record.reps} 次 · ${Math.round(record.volume * 10) / 10} kg·次</span></header>${record.sets.map((set,index) => `<div class="set-row"><span class="set-index">${index + 1}</span><span class="set-main"><strong>${set.weight_value ?? set.weight_kg ?? 0}${set.weight_unit || "kg"} × ${set.reps || 0}</strong><small>${LOAD_LABELS[set.load_mode] || "重量"}${set.rir != null ? ` · RIR ${set.rir}` : ""}${set.rpe != null ? ` · RPE ${set.rpe}` : ""}</small></span><em>${set.calculated_volume == null ? "—" : `${Math.round(Number(set.calculated_volume) * 10) / 10} kg·次`}</em></div>`).join("")}</article>`).join("")}</div></section>`;
+    bottomBar.innerHTML = `<button class="secondary" id="exerciseHistoryList">返回动作列表</button><button class="primary" id="historyBack">返回训练</button>`;
+    $("#exerciseHistoryList").onclick = () => { state.historyExerciseId = ""; renderHistory(); };
+    $("#historyBack").onclick = () => navigate("home");
+    return;
+  }
+  app.innerHTML = `<section class="history-summary"><div><span class="label">按动作汇总</span><h2>${groups.length} 个历史动作</h2><p>点开动作查看上次重量、容量、组数和全部逐组记录。</p></div><button id="historyRefresh">${state.training.busy ? "…" : "↻"}</button></section><div class="exercise-history-library">${groups.map((item) => { const latest = item.records[0], lastSet = latest.sets.at(-1) || {}; return `<button data-history-exercise="${escapeHTML(item.id)}"><span class="exercise-icon">${exerciseIcon(state.exercises.find((exercise) => exercise.id === item.id) || {movementPattern:""})}</span><span><strong>${escapeHTML(item.name)}</strong><small>最近 ${new Intl.DateTimeFormat("zh-CN",{month:"short",day:"numeric"}).format(new Date(latest.startedAt))} · ${lastSet.weight_value ?? lastSet.weight_kg ?? 0}${lastSet.weight_unit || "kg"} × ${lastSet.reps || 0}</small></span><em>${item.records.length} 次<br>${item.sets} 组</em></button>`; }).join("")}</div>`;
+  bottomBar.innerHTML = `<button class="secondary" id="historyWorkoutMode">按训练查看</button><button class="primary" id="historyBack">返回训练</button>`;
+  $("#historyWorkoutMode").onclick = () => { state.historyMode = "workouts"; renderHistory(); };
+  $("#historyBack").onclick = () => navigate("home");
+  $("#historyRefresh").onclick = () => loadTrainingSnapshot();
+  document.querySelectorAll("[data-history-exercise]").forEach((button) => button.onclick = () => { state.historyExerciseId = button.dataset.historyExercise; renderHistory(); });
+}
+
 function renderHistory() {
   setScreenHeading("训练历史");
   const history = state.training.snapshot?.workoutHistory || [];
@@ -360,6 +400,7 @@ function renderHistory() {
     $("#historyRefresh").onclick = () => loadTrainingSnapshot();
     return;
   }
+  if (state.historyMode === "exercises") return renderExerciseHistory(history);
   const activeIndex = Math.max(0, history.findIndex((item) => item.id === state.historyWorkoutId));
   const active = state.historyWorkoutId ? history[activeIndex] : null;
   if (active) {
@@ -379,7 +420,8 @@ function renderHistory() {
     return;
   }
   app.innerHTML = `<section class="history-summary"><div><span class="label">BODY.OS 已同步</span><h2>${history.length} 次训练</h2><p>点开任意一次，自动与上一场包含相同动作的训练比较。</p></div><button id="historyRefresh">${state.training.busy ? "…" : "↻"}</button></section><div class="history-list">${history.map((item,index) => { const previous = previousComparableWorkout(history,index); const comparison = compareWorkoutHistory(item, previous); return `<button data-history-id="${escapeHTML(item.id)}"><time>${new Intl.DateTimeFormat("zh-CN",{month:"short",day:"numeric"}).format(new Date(item.startedAt))}</time><span><strong>${escapeHTML(item.activityType || "力量训练")}</strong><small>${(item.exercises || []).map((exercise) => exercise.name).slice(0,3).join(" · ") || "无动作明细"}</small></span><em class="${comparison.volumeDelta >= 0 ? "positive" : "negative"}">${previous ? signedDelta(comparison.volumeDelta, " kg") : "首次"}</em></button>`; }).join("")}</div>`;
-  bottomBar.innerHTML = `<button class="primary" id="historyBack">返回训练</button>`;
+  bottomBar.innerHTML = `<button class="secondary" id="historyExerciseMode">历史动作库</button><button class="primary" id="historyBack">返回训练</button>`;
+  $("#historyExerciseMode").onclick = () => { state.historyMode = "exercises"; state.historyWorkoutId = ""; renderHistory(); };
   $("#historyBack").onclick = () => navigate("home");
   $("#historyRefresh").onclick = () => loadTrainingSnapshot();
   document.querySelectorAll("[data-history-id]").forEach((button) => button.onclick = () => { state.historyWorkoutId = button.dataset.historyId; renderHistory(); });
@@ -451,7 +493,7 @@ async function copyBodyJson() {
 
 function download(type) { const value = type === "json" ? JSON.stringify(createExport(state.session), null, 2) : toMarkdown(state.session); const blob = new Blob([value], { type: type === "json" ? "application/json;charset=utf-8" : "text/markdown;charset=utf-8" }); const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = `body-os-${state.session.startedAt.slice(0,10)}.${type}`; link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 1000); }
 
-backButton.onclick = () => history.back(); window.addEventListener("popstate", () => { const target = location.hash.slice(1) || "home"; state.screen = target; render(); });
+backButton.onclick = () => history.back(); quickFinish.onclick = finishSession; window.addEventListener("popstate", () => { const target = location.hash.slice(1) || "home"; state.screen = target; render(); });
 $("#languageToggle").onclick = toggleLocale;
 window.addEventListener("online", () => { status.textContent = "本机已保存"; if (state.session?.sync.status === "pending") showToast("网络已恢复，可导入 Body.OS"); }); window.addEventListener("offline", () => { status.textContent = "离线记录中"; status.style.color = "var(--orange)"; });
 document.addEventListener("visibilitychange", () => { if (!document.hidden) updateClocks(); });
