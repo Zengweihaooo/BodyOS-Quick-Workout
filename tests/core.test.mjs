@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { EXERCISE_REFERENCES, FALLBACK_EXERCISES, LEGACY_EXERCISE_ID_MAP, adjustRest, applyRecordingMode, buildBodyCandidate, calculateSetVolume, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, mergeExerciseCatalog, nextSetDraft, recordingModeForSet, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise, aggregateLiftPoints, displayLiftKg, estimated1rmKg, liftChartMarkup, lookbackLiftDeltas, pointsInLiftRange, progressSeriesForExercise, summarizeLiftDay } from "../core.js";
+import { EXERCISE_REFERENCES, FALLBACK_EXERCISES, LEGACY_EXERCISE_ID_MAP, adjustRest, applyRecordingMode, buildBodyCandidate, calculateSetVolume, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, mergeExerciseCatalog, nextSetDraft, recordingModeForSet, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise, aggregateLiftPoints, displayLiftKg, estimated1rmKg, liftChartMarkup, lookbackLiftDeltas, pointsInLiftRange, progressSeriesForExercise, snapshotFromWorkoutUploads, summarizeLiftDay } from "../core.js";
 
 const base = { exerciseId: "press", exerciseName: "哑铃推胸", weightValue: 10, weightUnit: "kg", reps: 12, completedAt: "2026-07-15T21:00:00+08:00", restSeconds: 90 };
 
@@ -266,4 +266,21 @@ test("week grain averages session means and hides per-set lists", () => {
   const markup = liftChartMarkup(points, { grain: "session", escapeHTML: (value) => String(value) });
   assert.match(markup, /class="lift-tooltip" hidden/);
   assert.match(markup, /class="lift-line is-best"/);
+});
+
+test("Pages workout uploads reconstruct a training snapshot for lift history", () => {
+  const snapshot = snapshotFromWorkoutUploads([{
+    session_started_at: "2026-09-01T20:00:00+08:00",
+    payload: {
+      session: {
+        id: "qws_1", startedAt: "2026-09-01T20:00:00+08:00",
+        sets: [{ exerciseId: "dumbbell_flat_chest_press", exerciseName: "哑铃平板推胸", weightValue: 22.5, weightUnit: "kg", reps: 8, loadMode: "per_limb", sideCount: 2 }],
+      },
+    },
+  }]);
+  assert.equal(snapshot.workoutHistory.length, 1);
+  assert.equal(snapshot.workoutHistory[0].exercises[0].exerciseId, "dumbbell_flat_chest_press");
+  const series = progressSeriesForExercise(snapshot, "dumbbell_flat_chest_press");
+  assert.equal(series.points.length, 1);
+  assert.equal(series.points[0].weightKg, 22.5);
 });

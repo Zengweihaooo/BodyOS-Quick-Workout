@@ -464,6 +464,68 @@ export function createExport(session) {
   return { schemaVersion: SCHEMA_VERSION, exportedAt: new Date().toISOString(), session: { ...session }, bodyOsCandidate: buildBodyCandidate(session) };
 }
 
+export function snapshotFromWorkoutUploads(rows = []) {
+  const workoutHistory = [];
+  for (const row of rows || []) {
+    const session = row?.payload?.session;
+    const sets = session?.sets || [];
+    if (!sets.length) continue;
+    const grouped = new Map();
+    for (const set of sets) {
+      const id = canonicalExerciseId(set.exerciseId || set.exercise_id);
+      if (!id) continue;
+      const group = grouped.get(id) || { exerciseId: id, name: set.exerciseName || set.name || id, sets: [] };
+      group.sets.push({
+        set_number: group.sets.length + 1,
+        set_type: set.setType || set.set_type || "working",
+        weight_value: set.weightValue ?? set.weight_value,
+        weight_unit: set.weightUnit || set.weight_unit || "kg",
+        reps: set.reps,
+        completed: 1,
+        load_mode: set.loadMode || set.load_mode,
+        rir: set.rir,
+        rpe: set.rpe,
+        calculated_volume: calculateSetVolume(set, session.bodyWeightKg),
+      });
+      grouped.set(id, group);
+    }
+    if (!grouped.size) continue;
+    workoutHistory.push({
+      id: String(session.id || row.id || ""),
+      startedAt: session.startedAt || row.session_started_at || "",
+      endedAt: session.endedAt || "",
+      activityType: "TraditionalStrengthTraining",
+      source: "quick_workout_upload",
+      exercises: [...grouped.values()],
+    });
+  }
+  workoutHistory.sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt)));
+  const exerciseDefaults = {};
+  for (const workout of workoutHistory) {
+    for (const exercise of workout.exercises || []) {
+      if (!exercise.exerciseId || exerciseDefaults[exercise.exerciseId] || !exercise.sets?.length) continue;
+      const heaviest = exercise.sets.reduce((best, item) => Number(item.weight_value || 0) > Number(best.weight_value || 0) ? item : best, exercise.sets[0]);
+      exerciseDefaults[exercise.exerciseId] = {
+        workoutId: workout.id,
+        usedAt: workout.startedAt,
+        setCount: exercise.sets.length,
+        weightValue: heaviest.weight_value,
+        weightUnit: heaviest.weight_unit || "kg",
+        reps: heaviest.reps || 0,
+      };
+    }
+  }
+  return {
+    schemaVersion: "body.os.training-snapshot.v1",
+    generatedAt: new Date().toISOString(),
+    source: "workout_uploads",
+    today: {},
+    exerciseDefaults,
+    workoutHistory,
+    exerciseProgress: {},
+  };
+}
+
 
 export const LIFT_RANGE_DAYS = { week: 7, month: 30, quarter: 91, year: 365 };
 export const LIFT_KG_TO_LB = 2.2046226218;

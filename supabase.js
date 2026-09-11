@@ -1,4 +1,13 @@
+import { snapshotFromWorkoutUploads } from "./core.js?v=18";
+
 const PROJECT_URL_PATTERN = /^https:\/\/[a-z0-9-]+\.supabase\.co$/i;
+const SNAPSHOT_SETUP_HINT = "云端缺少训练快照表 public.body_os_training_snapshots。请打开 Supabase → SQL Editor，执行本仓库 supabase/schema.sql，然后在本机启动一次 Body.OS 以发布历史。";
+
+export function isMissingSupabaseRelation(error, tableName = "") {
+  const text = `${error?.message || error || ""}`;
+  if (!/PGRST205|schema cache|Could not find the table/i.test(text)) return false;
+  return !tableName || text.includes(tableName);
+}
 
 export function normalizeSupabaseConfig(input = {}) {
   const url = String(input.url || "").trim().replace(/\/+$/, "");
@@ -61,13 +70,33 @@ export async function uploadWorkout(config, session, workoutExport) {
 export async function fetchTrainingSnapshot(config, session) {
   if (!session?.access_token || !session?.user?.id) throw new Error("请先登录 Supabase");
   const owner = encodeURIComponent(session.user.id);
-  const rows = await request(
-    config,
-    `/rest/v1/body_os_training_snapshots?select=payload,generated_at&owner_id=eq.${owner}&order=generated_at.desc&limit=1`,
-    { headers: { Authorization: `Bearer ${session.access_token}` } },
-  );
-  const row = Array.isArray(rows) ? rows[0] : null;
-  return row?.payload && typeof row.payload === "object"
-    ? { ...row.payload, generatedAt: row.payload.generatedAt || row.generated_at }
-    : null;
+  const auth = { headers: { Authorization: `Bearer ${session.access_token}` } };
+  try {
+    const rows = await request(
+      config,
+      `/rest/v1/body_os_training_snapshots?select=payload,generated_at&owner_id=eq.${owner}&order=generated_at.desc&limit=1`,
+      auth,
+    );
+    const row = Array.isArray(rows) ? rows[0] : null;
+    if (row?.payload && typeof row.payload === "object") {
+      return { ...row.payload, generatedAt: row.payload.generatedAt || row.generated_at };
+    }
+  } catch (error) {
+    if (!isMissingSupabaseRelation(error, "body_os_training_snapshots")) throw error;
+  }
+  try {
+    const uploads = await request(
+      config,
+      `/rest/v1/body_os_workout_uploads?select=payload,session_started_at,id&owner_id=eq.${owner}&order=session_started_at.desc&limit=120`,
+      auth,
+    );
+    const snapshot = snapshotFromWorkoutUploads(Array.isArray(uploads) ? uploads : []);
+    if (snapshot.workoutHistory.length) return snapshot;
+  } catch (error) {
+    if (isMissingSupabaseRelation(error, "body_os_training_snapshots") || isMissingSupabaseRelation(error, "body_os_workout_uploads")) {
+      throw new Error(SNAPSHOT_SETUP_HINT);
+    }
+    throw error;
+  }
+  throw new Error(SNAPSHOT_SETUP_HINT);
 }
