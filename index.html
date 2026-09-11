@@ -34,6 +34,13 @@
       <div><button id="copyFallbackClose" type="button">关闭</button><button id="copyFallbackRetry" type="button">再次复制</button></div>
     </div>
   </section>
-  <script type="module" src="./app.js?v=15"></script>
+
+  <section id="liftSheet" class="lift-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="liftSheetTitle">
+    <div class="lift-sheet-card">
+      <div class="lift-progress-head"><h2 id="liftSheetTitle">动作重量曲线</h2><button id="liftSheetClose" type="button">关闭</button></div>
+      <div id="liftSheetBody"></div>
+    </div>
+  </section>
+  <script type="module" src="./app.js?v=17"></script>
 </body>
 </html>

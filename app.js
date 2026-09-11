@@ -1,4 +1,4 @@
-import { EXERCISE_CATALOG_VERSION, EXERCISE_REFERENCES, FALLBACK_EXERCISES, LOAD_LABELS, adjustRest, applyRecordingMode, buildBodyCandidate, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createExport, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, mergeExerciseCatalog, nextSetDraft, normalizeSet, recordingModeForSet, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise } from "./core.js?v=13";
+import { EXERCISE_CATALOG_VERSION, EXERCISE_REFERENCES, FALLBACK_EXERCISES, LOAD_LABELS, adjustRest, applyRecordingMode, buildBodyCandidate, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createExport, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, mergeExerciseCatalog, nextSetDraft, normalizeSet, recordingModeForSet, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise, displayLiftKg, liftChartMarkup, liftPointDetailMarkup, lookbackLiftDeltas, pointsInLiftRange, progressSeriesForExercise } from "./core.js?v=15";
 import { fetchTrainingSnapshot, normalizeSupabaseConfig, refreshSession, sessionIsFresh, signInWithPassword, uploadWorkout } from "./supabase.js?v=2";
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -26,7 +26,7 @@ const TRAINING_PRESETS = [
   { key: "chest_balanced", group: "chest", title: "胸部平衡", note: "平板推 · 上斜推 · 夹胸", ids: ["dumbbell_flat_chest_press","dumbbell_incline_chest_press","cable_chest_fly"] },
   { key: "back_complete", group: "back", title: "背部完整", note: "垂直拉 · 水平拉 · 肩伸展", ids: ["assisted_close_grip_pull_up","neutral_grip_lat_pulldown","machine_row","straight_arm_pulldown"] },
 ];
-let state = { session: null, exercises: BASE_EXERCISES, screen: "home", draft: null, editingSetIndex: -1, selectedWatch: "", watchCandidates: [], importing: false, resetArmed: false, locale: "zh", pickerPresetKey: "", historyWorkoutId: "", historyMode: "workouts", historyExerciseId: "", training: { snapshot: null, busy: false, error: "" }, cloud: { config: null, session: null, busy: false } };
+let state = { session: null, exercises: BASE_EXERCISES, screen: "home", draft: null, editingSetIndex: -1, selectedWatch: "", watchCandidates: [], importing: false, resetArmed: false, locale: "zh", pickerPresetKey: "", historyWorkoutId: "", historyMode: "workouts", historyExerciseId: "", liftUnit: "kg", liftMetric: "weight", liftRange: "month", liftScrubIndex: -1, liftSheetOpen: false, training: { snapshot: null, busy: false, error: "" }, cloud: { config: null, session: null, busy: false } };
 let tickTimer = null, toastTimer = null, resetArmTimer = null;
 const canDirectBodyOs = location.pathname.startsWith("/quick-workout/") && !location.hostname.endsWith("github.io") && location.protocol !== "file:";
 
@@ -372,14 +372,103 @@ function exerciseHistoryGroups(history) {
   return [...groups.values()].sort((a, b) => new Date(b.records[0].startedAt) - new Date(a.records[0].startedAt));
 }
 
+
+function bindLiftChart(root, points) {
+  const svg = root.querySelector("[data-lift-svg]");
+  if (!svg || !points.length) return;
+  const apply = (index) => {
+    state.liftScrubIndex = Math.max(0, Math.min(points.length - 1, index));
+    const point = points[state.liftScrubIndex];
+    const tooltip = root.querySelector(".lift-tooltip");
+    if (tooltip) tooltip.innerHTML = liftPointDetailMarkup(point, { unit: state.liftUnit || "kg", metric: state.liftMetric || "weight", escapeHTML });
+    const width = Number(svg.viewBox.baseVal.width || 640);
+    const padL = Number(svg.dataset.padL || 46);
+    const padR = Number(svg.dataset.padR || 18);
+    const x = padL + (points.length === 1 ? (width - padL - padR) / 2 : state.liftScrubIndex * (width - padL - padR) / (points.length - 1));
+    const line = svg.querySelector(".lift-scrub");
+    if (line) { line.setAttribute("x1", x.toFixed(1)); line.setAttribute("x2", x.toFixed(1)); }
+    svg.querySelectorAll(".lift-dot").forEach((circle) => {
+      const active = Number(circle.dataset.liftIndex) === state.liftScrubIndex;
+      circle.classList.toggle("is-active", active);
+      circle.setAttribute("r", active ? "6.5" : "4.5");
+    });
+  };
+  const pick = (event) => {
+    const box = svg.getBoundingClientRect();
+    const padL = Number(svg.dataset.padL || 46);
+    const padR = Number(svg.dataset.padR || 18);
+    const width = Number(svg.viewBox.baseVal.width || 640);
+    const scale = box.width / width;
+    const left = box.left + padL * scale;
+    const inner = Math.max(box.width - (padL + padR) * scale, 1);
+    const ratio = (event.clientX - left) / inner;
+    apply(Math.round(Math.max(0, Math.min(1, ratio)) * (points.length - 1)));
+  };
+  let dragging = false;
+  svg.addEventListener("pointerdown", (event) => {
+    dragging = event.pointerType !== "mouse";
+    svg.setPointerCapture(event.pointerId);
+    pick(event);
+    if (event.pointerType !== "mouse") event.preventDefault();
+  });
+  svg.addEventListener("pointermove", (event) => {
+    if (event.pointerType === "mouse" || dragging) pick(event);
+  });
+  svg.addEventListener("pointerup", () => { dragging = false; });
+  svg.addEventListener("pointercancel", () => { dragging = false; });
+  svg.addEventListener("pointerleave", (event) => { if (event.pointerType === "mouse") dragging = false; });
+}
+
+function liftProgressPanel(exerciseId, large = false) {
+  const series = progressSeriesForExercise(state.training.snapshot, canonicalExerciseId(exerciseId));
+  const unit = state.liftUnit || "kg";
+  const metric = state.liftMetric || "weight";
+  const range = state.liftRange || "month";
+  const points = pointsInLiftRange(series.points, range);
+  const deltas = lookbackLiftDeltas(series.points);
+  const label = (key, title) => {
+    const item = deltas[key];
+    if (!item) return `<article><small>${title}</small><strong>没有对比</strong></article>`;
+    const raw = metric === "e1rm" ? item.deltaEstimated1rmKg : item.deltaWeightKg;
+    const shown = displayLiftKg(raw, unit);
+    const sign = shown > 0 ? "+" : "";
+    return `<article><small>${title}</small><strong>${sign}${shown} ${unit}</strong></article>`;
+  };
+  return `<section class="lift-progress"><div class="lift-progress-head"><div><span class="label">重量进步</span><h2>${escapeHTML(series.name || "动作曲线")}</h2><p>每个点是当天各组的平均重量；悬停或按住拖动可看全部组。</p></div><div class="lift-switch"><button type="button" class="${unit === "kg" ? "active" : ""}" data-lift-unit="kg">kg</button><button type="button" class="${unit === "lb" ? "active" : ""}" data-lift-unit="lb">lb</button></div></div><div class="lift-switch"><button type="button" class="${metric === "weight" ? "active" : ""}" data-lift-metric="weight">当日均重</button><button type="button" class="${metric === "e1rm" ? "active" : ""}" data-lift-metric="e1rm">估算 1RM</button></div><div class="lift-ranges">${[["week","周"],["month","月"],["quarter","季"],["year","年"]].map(([key,labelText]) => `<button type="button" class="${range === key ? "active" : ""}" data-lift-range="${key}">${labelText}</button>`).join("")}</div><div class="lift-deltas">${label("week","周进步")}${label("month","月进步")}${label("quarter","季度进步")}${label("year","年进步")}</div>${liftChartMarkup(points, { unit, metric, large, activeIndex: state.liftScrubIndex, escapeHTML })}${large ? "" : `<button class="secondary" id="openLiftSheet" type="button">放大曲线</button>`}</section>`;
+}
+
+function bindLiftProgressControls(root, exerciseId) {
+  root.querySelectorAll("[data-lift-unit]").forEach((button) => button.onclick = () => { state.liftUnit = button.dataset.liftUnit; render(); });
+  root.querySelectorAll("[data-lift-metric]").forEach((button) => button.onclick = () => { state.liftMetric = button.dataset.liftMetric; render(); });
+  root.querySelectorAll("[data-lift-range]").forEach((button) => button.onclick = () => { state.liftRange = button.dataset.liftRange; state.liftScrubIndex = -1; render(); });
+  const series = progressSeriesForExercise(state.training.snapshot, canonicalExerciseId(exerciseId));
+  bindLiftChart(root, pointsInLiftRange(series.points, state.liftRange || "month"));
+  const open = root.querySelector("#openLiftSheet");
+  if (open) open.onclick = () => { state.liftSheetOpen = true; render(); };
+}
+
+function syncLiftSheet(exerciseId) {
+  const sheet = document.getElementById("liftSheet");
+  const body = document.getElementById("liftSheetBody");
+  if (!sheet || !body) return;
+  if (!state.liftSheetOpen) { sheet.classList.add("hidden"); return; }
+  sheet.classList.remove("hidden");
+  body.innerHTML = liftProgressPanel(exerciseId, true);
+  bindLiftProgressControls(body, exerciseId);
+  document.getElementById("liftSheetClose").onclick = () => { state.liftSheetOpen = false; render(); };
+  sheet.onclick = (event) => { if (event.target === sheet) { state.liftSheetOpen = false; render(); } };
+}
+
 function renderExerciseHistory(history) {
   const groups = exerciseHistoryGroups(history);
   const active = groups.find((item) => item.id === state.historyExerciseId);
   if (active) {
     app.innerHTML = `<section class="history-detail-hero"><span class="label">历史动作库</span><h2>${escapeHTML(active.name)}</h2><div class="metrics"><div class="metric"><span class="label">训练次数</span><strong>${active.records.length}</strong></div><div class="metric"><span class="label">总组数</span><strong>${active.sets}</strong></div><div class="metric"><span class="label">总容量</span><strong>${Math.round(active.volume * 10) / 10}</strong><small>kg·次</small></div></div><p>按时间倒序展示全部 ${active.reps} 次重复。</p></section>
-    <section class="section"><div class="section-head"><h2>历史训练记录</h2><span class="label">最新优先</span></div><div class="exercise-history-records">${active.records.map((record) => `<article><header><div><strong>${new Intl.DateTimeFormat("zh-CN",{year:"numeric",month:"short",day:"numeric"}).format(new Date(record.startedAt))}</strong><small>${escapeHTML(record.activityType || "力量训练")}</small></div><span>${record.setCount} 组 · ${record.reps} 次 · ${Math.round(record.volume * 10) / 10} kg·次</span></header>${record.sets.map((set,index) => `<div class="set-row"><span class="set-index">${index + 1}</span><span class="set-main"><strong>${set.weight_value ?? set.weight_kg ?? 0}${set.weight_unit || "kg"} × ${set.reps || 0}</strong><small>${LOAD_LABELS[set.load_mode] || "重量"}${set.rir != null ? ` · RIR ${set.rir}` : ""}${set.rpe != null ? ` · RPE ${set.rpe}` : ""}</small></span><em>${set.calculated_volume == null ? "—" : `${Math.round(Number(set.calculated_volume) * 10) / 10} kg·次`}</em></div>`).join("")}</article>`).join("")}</div></section>`;
+    ${liftProgressPanel(active.id)}<section class="section"><div class="section-head"><h2>历史训练记录</h2><span class="label">最新优先</span></div><div class="exercise-history-records">${active.records.map((record) => `<article><header><div><strong>${new Intl.DateTimeFormat("zh-CN",{year:"numeric",month:"short",day:"numeric"}).format(new Date(record.startedAt))}</strong><small>${escapeHTML(record.activityType || "力量训练")}</small></div><span>${record.setCount} 组 · ${record.reps} 次 · ${Math.round(record.volume * 10) / 10} kg·次</span></header>${record.sets.map((set,index) => `<div class="set-row"><span class="set-index">${index + 1}</span><span class="set-main"><strong>${set.weight_value ?? set.weight_kg ?? 0}${set.weight_unit || "kg"} × ${set.reps || 0}</strong><small>${LOAD_LABELS[set.load_mode] || "重量"}${set.rir != null ? ` · RIR ${set.rir}` : ""}${set.rpe != null ? ` · RPE ${set.rpe}` : ""}</small></span><em>${set.calculated_volume == null ? "—" : `${Math.round(Number(set.calculated_volume) * 10) / 10} kg·次`}</em></div>`).join("")}</article>`).join("")}</div></section>`;
     bottomBar.innerHTML = `<button class="secondary" id="exerciseHistoryList">返回动作列表</button><button class="primary" id="historyBack">返回训练</button>`;
-    $("#exerciseHistoryList").onclick = () => { state.historyExerciseId = ""; renderHistory(); };
+    $("#exerciseHistoryList").onclick = () => { state.historyExerciseId = ""; state.liftSheetOpen = false; renderHistory(); };
+    const panel = document.querySelector(".lift-progress"); if (panel) bindLiftProgressControls(panel, active.id);
+    syncLiftSheet(active.id);
     $("#historyBack").onclick = () => navigate("home");
     return;
   }

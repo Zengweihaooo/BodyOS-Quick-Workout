@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { EXERCISE_REFERENCES, FALLBACK_EXERCISES, LEGACY_EXERCISE_ID_MAP, adjustRest, applyRecordingMode, buildBodyCandidate, calculateSetVolume, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, mergeExerciseCatalog, nextSetDraft, recordingModeForSet, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise } from "../core.js";
+import { EXERCISE_REFERENCES, FALLBACK_EXERCISES, LEGACY_EXERCISE_ID_MAP, adjustRest, applyRecordingMode, buildBodyCandidate, calculateSetVolume, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, mergeExerciseCatalog, nextSetDraft, recordingModeForSet, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise, displayLiftKg, estimated1rmKg, lookbackLiftDeltas, pointsInLiftRange, progressSeriesForExercise, summarizeLiftDay } from "../core.js";
 
 const base = { exerciseId: "press", exerciseName: "哑铃推胸", weightValue: 10, weightUnit: "kg", reps: 12, completedAt: "2026-07-15T21:00:00+08:00", restSeconds: 90 };
 
@@ -175,4 +175,47 @@ test("stale IndexedDB rows cannot replace new built-ins and custom rows survive"
   );
   assert.deepEqual(merged.map((item) => item.id), ["assisted_close_grip_pull_up", "custom_keep"]);
   assert.equal(merged[0].name, "新版动作");
+});
+
+test("lift progress converts kg to lb and computes lookbacks", () => {
+  assert.equal(estimated1rmKg(100, 6), 120);
+  assert.equal(displayLiftKg(10, "lb"), 22.05);
+  const points = [
+    { date: "2025-08-01", weightKg: 50, estimated1rmKg: 70 },
+    { date: "2026-06-01", weightKg: 70, estimated1rmKg: 90 },
+    { date: "2026-09-01", weightKg: 80, estimated1rmKg: 100 },
+  ];
+  const deltas = lookbackLiftDeltas(points);
+  assert.equal(deltas.year.fromDate, "2025-08-01");
+  assert.equal(deltas.year.deltaWeightKg, 30);
+  const week = pointsInLiftRange(points, "week", new Date("2026-09-11T12:00:00"));
+  assert.equal(week.length, 0);
+});
+
+test("daily lift points average every working set and keep set details", () => {
+  const series = progressSeriesForExercise({
+    workoutHistory: [{
+      id: "w1", startedAt: "2026-09-01T20:00:00+08:00",
+      exercises: [{
+        exerciseId: "dumbbell_flat_chest_press", name: "平板哑铃卧推",
+        sets: [
+          { set_number: 1, set_type: "warmup", weight_value: 10, weight_unit: "kg", reps: 12, completed: 1 },
+          { set_number: 2, set_type: "working", weight_value: 20, weight_unit: "kg", reps: 10, completed: 1 },
+          { set_number: 3, set_type: "working", weight_value: 22.5, weight_unit: "kg", reps: 8, completed: 1 },
+          { set_number: 4, set_type: "working", weight_value: 25, weight_unit: "kg", reps: 6, completed: 1 },
+          { set_number: 5, set_type: "working", weight_value: 20, weight_unit: "kg", reps: 8, completed: 1 },
+        ],
+      }],
+    }],
+  }, "dumbbell_flat_chest_press");
+  assert.equal(series.points.length, 1);
+  assert.equal(series.points[0].setCount, 4);
+  assert.equal(series.points[0].weightKg, 21.875);
+  assert.deepEqual(series.points[0].sets.map((item) => item.weightKg), [20, 22.5, 25, 20]);
+  const day = summarizeLiftDay("2026-09-01", [
+    { weightKg: 20, reps: 10, volumeKg: 200 },
+    { weightKg: 20, reps: 10, volumeKg: 200 },
+  ]);
+  assert.equal(day.weightKg, 20);
+  assert.equal(day.volumeKg, 200);
 });

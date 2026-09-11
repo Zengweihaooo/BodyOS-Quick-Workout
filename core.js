@@ -420,3 +420,173 @@ export function toMarkdown(session) {
 export function createExport(session) {
   return { schemaVersion: SCHEMA_VERSION, exportedAt: new Date().toISOString(), session: { ...session }, bodyOsCandidate: buildBodyCandidate(session) };
 }
+
+
+export const LIFT_RANGE_DAYS = { week: 7, month: 30, quarter: 91, year: 365 };
+export const LIFT_KG_TO_LB = 2.2046226218;
+
+export function estimated1rmKg(weightKg, reps) {
+  const weight = Number(weightKg), count = Number(reps);
+  if (!Number.isFinite(weight) || weight <= 0 || !Number.isFinite(count) || count <= 0) return null;
+  return Math.round(weight * (1 + count / 30) * 10000) / 10000;
+}
+
+export function displayLiftKg(kg, unit) {
+  if (kg == null || !Number.isFinite(Number(kg))) return null;
+  return Math.round(Number(kg) * (unit === "lb" ? LIFT_KG_TO_LB : 1) * 100) / 100;
+}
+
+export function workingSetWeightKg(item = {}) {
+  if (String(item.set_type || item.setType || "working") === "warmup" || item.completed === 0) return null;
+  const direct = Number(item.weight_kg);
+  if (Number.isFinite(direct) && direct > 0) return Math.round(direct * 10000) / 10000;
+  const value = Number(item.weight_value ?? item.weightValue);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  const unit = item.weight_unit || item.weightUnit || "kg";
+  return Math.round(value * (unit === "lb" ? 0.45359237 : 1) * 10000) / 10000;
+}
+
+export function summarizeLiftDay(date, sets, workoutId = "") {
+  const clean = (sets || []).filter((item) => Number(item.weightKg) > 0);
+  if (!clean.length) return null;
+  const n = clean.length;
+  const mean = (key) => Math.round(clean.reduce((sum, item) => sum + Number(item[key] || 0), 0) / n * 10000) / 10000;
+  const meanEstimate = Math.round(clean.reduce((sum, item) => sum + (estimated1rmKg(item.weightKg, item.reps) || 0), 0) / n * 10000) / 10000;
+  return {
+    date, workoutId, setCount: n, sets: clean,
+    weightKg: mean("weightKg"),
+    reps: mean("reps"),
+    volumeKg: mean("volumeKg"),
+    estimated1rmKg: meanEstimate,
+  };
+}
+
+export function progressSeriesForExercise(snapshot, exerciseId) {
+  const id = canonicalExerciseId(exerciseId);
+  const byDate = new Map();
+  let name = snapshot?.exerciseProgress?.[id]?.name || id;
+  for (const workout of snapshot?.workoutHistory || []) {
+    for (const exercise of workout.exercises || []) {
+      if (canonicalExerciseId(exercise.exerciseId) !== id) continue;
+      name = exercise.name || name;
+      const date = String(workout.startedAt || "").slice(0, 10);
+      if (!date) continue;
+      const day = byDate.get(date) || { date, workoutId: workout.id || "", sets: [] };
+      (exercise.sets || []).forEach((item, index) => {
+        const weightKg = workingSetWeightKg(item);
+        if (weightKg == null) return;
+        const reps = Number(item.reps || 0);
+        day.sets.push({
+          setNumber: item.set_number || item.setNumber || index + 1,
+          weightKg, reps,
+          volumeKg: Math.round(weightKg * Math.max(reps, 0) * 1000) / 1000,
+          weightValue: item.weight_value ?? item.weightValue ?? weightKg,
+          weightUnit: item.weight_unit || item.weightUnit || "kg",
+        });
+      });
+      if (day.sets.length) byDate.set(date, day);
+    }
+  }
+  const points = [...byDate.values()]
+    .map((day) => summarizeLiftDay(day.date, day.sets, day.workoutId))
+    .filter(Boolean)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  return { name, points };
+}
+
+export function pointsInLiftRange(points, rangeKey, today = new Date()) {
+  const days = LIFT_RANGE_DAYS[rangeKey] || 365;
+  const end = new Date(today);
+  end.setHours(12, 0, 0, 0);
+  const start = new Date(end);
+  start.setDate(start.getDate() - days);
+  return (points || []).filter((point) => {
+    const day = new Date(`${point.date}T12:00:00`);
+    return !Number.isNaN(day.getTime()) && day >= start && day <= end;
+  });
+}
+
+export function lookbackLiftDeltas(points) {
+  const ordered = [...(points || [])].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  const result = { week: null, month: null, quarter: null, year: null };
+  if (!ordered.length) return result;
+  const latest = ordered.at(-1);
+  const latestDate = new Date(`${latest.date}T12:00:00`);
+  for (const [key, days] of Object.entries(LIFT_RANGE_DAYS)) {
+    const cutoff = new Date(latestDate);
+    cutoff.setDate(cutoff.getDate() - days);
+    const prior = ordered.filter((item) => new Date(`${item.date}T12:00:00`) <= cutoff);
+    if (!prior.length) continue;
+    const before = prior.at(-1);
+    result[key] = {
+      days, fromDate: before.date, toDate: latest.date,
+      deltaWeightKg: Math.round((Number(latest.weightKg) - Number(before.weightKg)) * 10000) / 10000,
+      deltaEstimated1rmKg: latest.estimated1rmKg == null || before.estimated1rmKg == null ? null : Math.round((Number(latest.estimated1rmKg) - Number(before.estimated1rmKg)) * 10000) / 10000,
+      deltaVolumeKg: Math.round((Number(latest.volumeKg || 0) - Number(before.volumeKg || 0)) * 10000) / 10000,
+    };
+  }
+  return result;
+}
+
+export function liftPointMetric(point, metric = "weight") {
+  if (metric === "e1rm") return point?.estimated1rmKg;
+  if (metric === "volume") return point?.volumeKg;
+  return point?.weightKg;
+}
+
+export function liftPointDetailMarkup(point, { unit = "kg", metric = "weight", escapeHTML = (value) => String(value) } = {}) {
+  if (!point) return "";
+  const mean = displayLiftKg(liftPointMetric(point, metric), unit);
+  const meanLabel = metric === "e1rm" ? "估算 1RM 均值" : "当日均重";
+  const volume = displayLiftKg(point.volumeKg, unit);
+  const sets = point.sets || [];
+  const setRows = sets.map((item, index) => {
+    const shown = displayLiftKg(item.weightKg, unit);
+    return `<li><span>第 ${escapeHTML(item.setNumber || index + 1)} 组</span><strong>${shown} ${unit} × ${item.reps || 0}</strong><em>${displayLiftKg(item.volumeKg, unit)} ${unit}·次</em></li>`;
+  }).join("");
+  return `<header><div><strong>${escapeHTML(point.date)}</strong><small>${point.setCount || sets.length} 组 · ${meanLabel} ${mean} ${unit}</small></div><em>均容量 ${volume == null ? "—" : `${volume} ${unit}·次`}</em></header>${setRows ? `<ol>${setRows}</ol>` : "<p>没有逐组记录</p>"}`;
+}
+
+export function liftChartMarkup(points, { unit = "kg", metric = "weight", large = false, activeIndex = -1, escapeHTML = (value) => String(value) } = {}) {
+  const values = points.map((point) => displayLiftKg(liftPointMetric(point, metric), unit));
+  if (!points.length || values.every((value) => value == null)) return `<div class="empty">暂无重量曲线</div>`;
+  const width = large ? 720 : 640, height = large ? 268 : 210;
+  const pad = { l: 46, r: 18, t: 22, b: 36 };
+  const present = values.map((value, index) => value == null ? null : { value, index }).filter(Boolean);
+  const minRaw = Math.min(...present.map((item) => item.value));
+  const maxRaw = Math.max(...present.map((item) => item.value));
+  const padY = Math.max((maxRaw - minRaw) * 0.18, maxRaw * 0.04, 0.5);
+  const min = Math.max(0, minRaw - padY);
+  const max = maxRaw + padY;
+  const span = Math.max(max - min, 0.001);
+  const innerW = width - pad.l - pad.r;
+  const innerH = height - pad.t - pad.b;
+  const xAt = (index) => pad.l + (points.length === 1 ? innerW / 2 : index * innerW / (points.length - 1));
+  const yAt = (value) => pad.t + (max - value) / span * innerH;
+  const line = present.map((item, order) => `${order ? "L" : "M"}${xAt(item.index).toFixed(1)},${yAt(item.value).toFixed(1)}`).join(" ");
+  const area = `${line} L${xAt(present.at(-1).index).toFixed(1)},${(height - pad.b).toFixed(1)} L${xAt(present[0].index).toFixed(1)},${(height - pad.b).toFixed(1)} Z`;
+  const active = Math.max(0, Math.min(points.length - 1, activeIndex >= 0 ? activeIndex : points.length - 1));
+  const ticks = [max, (max + min) / 2, min];
+  const labelIndexes = points.length <= 4 ? points.map((_, index) => index) : [0, Math.round((points.length - 1) / 2), points.length - 1];
+  const dateLabel = (value) => {
+    const parts = String(value || "").split("-");
+    return parts.length === 3 ? `${Number(parts[1])}/${Number(parts[2])}` : value;
+  };
+  return `<div class="lift-chart" data-lift-chart="${large ? "large" : "inline"}">
+    <svg viewBox="0 0 ${width} ${height}" data-lift-svg data-pad-l="${pad.l}" data-pad-r="${pad.r}" role="img" aria-label="按训练日均重绘制的进步曲线">
+      <defs>
+        <linearGradient id="liftFill-${large ? "lg" : "sm"}" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#79f2bf" stop-opacity="0.32"/>
+          <stop offset="100%" stop-color="#79f2bf" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+      ${ticks.map((tick) => `<g class="lift-grid"><line x1="${pad.l}" x2="${width - pad.r}" y1="${yAt(tick).toFixed(1)}" y2="${yAt(tick).toFixed(1)}"></line><text x="${pad.l - 8}" y="${yAt(tick).toFixed(1)}" dy="0.35em">${Math.round(tick * 10) / 10}</text></g>`).join("")}
+      <path class="lift-area" d="${area}" fill="url(#liftFill-${large ? "lg" : "sm"})"></path>
+      <path class="lift-line" d="${line}"></path>
+      ${present.map((item) => `<circle class="lift-hit" data-lift-index="${item.index}" cx="${xAt(item.index).toFixed(1)}" cy="${yAt(item.value).toFixed(1)}" r="16"></circle><circle class="lift-dot${item.index === active ? " is-active" : ""}" data-lift-index="${item.index}" cx="${xAt(item.index).toFixed(1)}" cy="${yAt(item.value).toFixed(1)}" r="${item.index === active ? 6.5 : 4.5}"></circle>`).join("")}
+      <line class="lift-scrub" x1="${xAt(active).toFixed(1)}" x2="${xAt(active).toFixed(1)}" y1="${pad.t}" y2="${height - pad.b}"></line>
+      ${labelIndexes.map((index) => `<text class="lift-x" x="${xAt(index).toFixed(1)}" y="${height - 10}">${dateLabel(points[index].date)}</text>`).join("")}
+    </svg>
+    <div class="lift-tooltip">${liftPointDetailMarkup(points[active], { unit, metric, escapeHTML })}</div>
+  </div>`;
+}
