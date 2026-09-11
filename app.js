@@ -1,5 +1,5 @@
 import { EXERCISE_CATALOG_VERSION, EXERCISE_REFERENCES, FALLBACK_EXERCISES, LOAD_LABELS, adjustRest, applyRecordingMode, buildBodyCandidate, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createExport, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, lookupExerciseDefault, mergeExerciseCatalog, nextSetDraft, normalizeSet, recordingModeForSet, resolveCatalogExerciseId, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise, aggregateLiftPoints, displayLiftKg, liftChartMarkup, liftPointDetailMarkup, lookbackLiftDeltas, progressSeriesForExercise } from "./core.js?v=18";
-import { fetchTrainingSnapshot, normalizeSupabaseConfig, refreshSession, sessionIsFresh, signInWithPassword, uploadWorkout } from "./supabase.js?v=4";
+import { fetchTrainingSnapshot, normalizeSupabaseConfig, refreshSession, sessionIsFresh, signInWithPassword, uploadWorkout } from "./supabase.js?v=5";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const app = $("#app"), bottomBar = $("#bottomBar"), backButton = $("#backButton"), title = $("#screenTitle"), status = $("#networkStatus"), quickFinish = $("#quickFinish");
@@ -307,7 +307,6 @@ async function loadTrainingSnapshot({ quiet = false } = {}) {
         if (!state.cloud.config || !state.cloud.session) throw new Error("登录 Supabase 后即可同步训练数据");
         const session = await ensureCloudSession();
         snapshot = await fetchTrainingSnapshot(state.cloud.config, session);
-        if (!snapshot) throw new Error("云端还没有训练快照；请先启动一次本地 Body.OS");
       }
       state.training.snapshot = snapshot;
       await DB.set("training-snapshot", snapshot);
@@ -487,7 +486,7 @@ function liftProgressPanel(exerciseId, large = false) {
     : state.training.error && !points.length
       ? state.training.error
       : !points.length && (canDirectBodyOs || state.cloud.session)
-        ? "云端这份动作还没有可用的重量历史。"
+        ? "这张网页目前只读取你已上传到 Supabase 的训练。该动作还没有上传过的重量记录。"
         : !points.length ? "登录 Supabase 后打开动作会自动拉取历史。" : "";
   const grainHint = grain === "session" ? "每个点是一次训练当天工作组的平均重量；悬停或按住拖动可看全部组。" : "每个点是该时段内各次训练日均重的再平均。";
   return `<section class="lift-progress"><div class="lift-progress-head"><div><span class="label">进步栏</span><h2>${escapeHTML(series.name || "动作曲线")}</h2><p>${grainHint}</p></div><div class="lift-switch"><button type="button" class="${unit === "kg" ? "active" : ""}" data-lift-unit="kg">kg</button><button type="button" class="${unit === "lb" ? "active" : ""}" data-lift-unit="lb">lb</button></div></div><div class="lift-ranges">${[["session","按次"],["week","按周"],["month","按月"],["year","按年"]].map(([key,labelText]) => `<button type="button" class="${grain === key ? "active" : ""}" data-lift-grain="${key}">${labelText}</button>`).join("")}</div>${deltaRow ? `<div class="lift-deltas">${deltaRow}</div>` : ""}${status ? `<p class="lift-status">${escapeHTML(status)}</p>` : ""}${liftChartMarkup(points, { unit, grain, large, activeIndex: state.liftScrubIndex, escapeHTML })}${large ? "" : `<button class="secondary" id="openLiftSheet" type="button">放大曲线</button>`}</section>`;

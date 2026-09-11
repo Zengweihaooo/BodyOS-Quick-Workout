@@ -467,8 +467,22 @@ export function createExport(session) {
 export function snapshotFromWorkoutUploads(rows = []) {
   const workoutHistory = [];
   for (const row of rows || []) {
-    const session = row?.payload?.session;
-    const sets = session?.sets || [];
+    const payload = row?.payload || {};
+    let session = payload.session && typeof payload.session === "object" ? payload.session : payload;
+    let sets = Array.isArray(session?.sets) ? session.sets : [];
+    if (!sets.length) {
+      const exercises = payload.bodyOsCandidate?.exercises || session.bodyOsCandidate?.exercises || [];
+      sets = exercises.flatMap((exercise) => (exercise.sets || []).map((item) => ({
+        exerciseId: exercise.exerciseCanonicalId || exercise.exerciseId,
+        exerciseName: exercise.displayName || exercise.originalExerciseName || exercise.name,
+        weightValue: item.weightValue ?? item.weight_value,
+        weightUnit: item.weightUnit || item.weight_unit || "kg",
+        reps: item.reps,
+        loadMode: item.loadMode || item.load_mode,
+        setType: item.setType || item.set_type,
+        completed: item.completed === false || item.completed === 0 ? 0 : 1,
+      })));
+    }
     if (!sets.length) continue;
     const grouped = new Map();
     for (const set of sets) {
@@ -481,7 +495,7 @@ export function snapshotFromWorkoutUploads(rows = []) {
         weight_value: set.weightValue ?? set.weight_value,
         weight_unit: set.weightUnit || set.weight_unit || "kg",
         reps: set.reps,
-        completed: 1,
+        completed: set.completed === false || set.completed === 0 ? 0 : 1,
         load_mode: set.loadMode || set.load_mode,
         rir: set.rir,
         rpe: set.rpe,

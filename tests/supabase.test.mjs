@@ -26,34 +26,11 @@ test("re-upload clears import markers so Body OS can apply edits", async () => {
   } finally { globalThis.fetch = originalFetch; }
 });
 
-test("training snapshot is read with the signed-in owner token", async () => {
+test("training history is read from uploaded workouts, not a snapshot table", async () => {
   const originalFetch = globalThis.fetch;
   let requestUrl, authorization;
   globalThis.fetch = async (url, options) => {
     requestUrl = url; authorization = options.headers.Authorization;
-    return { ok: true, json: async () => [{ generated_at: "2026-07-28T00:00:00Z", payload: { schemaVersion: "body.os.training-snapshot.v1", workoutHistory: [] } }] };
-  };
-  try {
-    const snapshot = await fetchTrainingSnapshot(
-      { url: "https://abc.supabase.co", anonKey: "a".repeat(24) },
-      { access_token: "signed-token", user: { id: "owner-id" } },
-    );
-    assert.match(requestUrl, /owner_id=eq.owner-id/);
-    assert.match(requestUrl, /order=generated_at\.desc/);
-    assert.equal(authorization, "Bearer signed-token");
-    assert.equal(snapshot.schemaVersion, "body.os.training-snapshot.v1");
-    assert.equal(snapshot.generatedAt, "2026-07-28T00:00:00Z");
-  } finally { globalThis.fetch = originalFetch; }
-});
-
-test("missing snapshot table falls back to owner workout uploads", async () => {
-  const originalFetch = globalThis.fetch;
-  const urls = [];
-  globalThis.fetch = async (url) => {
-    urls.push(String(url));
-    if (String(url).includes("body_os_training_snapshots")) {
-      return { ok: false, json: async () => ({ code: "PGRST205", message: "Could not find the table 'public.body_os_training_snapshots' in the schema cache" }) };
-    }
     return {
       ok: true,
       json: async () => [{
@@ -72,8 +49,9 @@ test("missing snapshot table falls back to owner workout uploads", async () => {
       { url: "https://abc.supabase.co", anonKey: "a".repeat(24) },
       { access_token: "signed-token", user: { id: "owner-id" } },
     );
-    assert.match(urls[0], /body_os_training_snapshots/);
-    assert.match(urls[1], /body_os_workout_uploads/);
+    assert.match(String(requestUrl), /body_os_workout_uploads/);
+    assert.doesNotMatch(String(requestUrl), /body_os_training_snapshots/);
+    assert.equal(authorization, "Bearer signed-token");
     assert.equal(snapshot.workoutHistory[0].exercises[0].exerciseId, "dumbbell_flat_chest_press");
   } finally { globalThis.fetch = originalFetch; }
 });
