@@ -45,18 +45,27 @@
 .lift-deltas article{padding:12px;border:1px solid #ffffff12;border-radius:16px;background:#0b1017}
 .lift-deltas small{color:var(--muted);font-size:10px}
 .lift-deltas strong{display:block;margin-top:6px;font-size:18px}
-.lift-chart{touch-action:none;color:var(--mint)}
+.lift-chart{touch-action:none;display:grid;gap:8px;color:var(--mint)}
+.lift-legend{display:flex;flex-wrap:wrap;gap:10px 14px;color:var(--muted);font-size:11px}
+.lift-legend span{display:inline-flex;align-items:center;gap:6px}
+.lift-legend span::before{content:"";width:14px;height:3px;border-radius:99px;background:#79f2bf}
+.lift-legend .best::before{background:#60a5fa;height:0;border-top:2px dashed #60a5fa}
+.lift-legend .vol::before{width:10px;height:8px;border-radius:2px;background:#f3c07a;opacity:.7}
+.lift-plot{position:relative}
 .lift-chart svg{display:block;width:100%;height:auto;overflow:visible}
 .lift-grid line{stroke:#ffffff12;stroke-width:1}
 .lift-grid text{fill:#8ea39a;font-size:10px;text-anchor:end}
 .lift-x{fill:#8ea39a;font-size:10px;text-anchor:middle}
+.lift-bar{fill:#f3c07a;opacity:.45}
 .lift-area{pointer-events:none}
 .lift-line{fill:none;stroke:#79f2bf;stroke-width:2.8;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 0 8px #79f2bf55)}
+.lift-line.is-best{stroke:#60a5fa;stroke-width:2.2;stroke-dasharray:5 4;filter:none}
 .lift-hit{fill:transparent;stroke:none}
 .lift-dot{fill:#06130e;stroke:#79f2bf;stroke-width:2.4}
 .lift-dot.is-active{fill:#d8ffee;stroke:#fff;stroke-width:2.6}
 .lift-scrub{stroke:#d8ffee55;stroke-width:1.4;stroke-dasharray:3 5}
-.lift-tooltip{display:grid;gap:10px;margin-top:12px;padding:14px;border:1px solid #79f2bf33;border-radius:18px;background:#0b1512}
+.lift-tooltip{position:absolute;z-index:6;top:10px;left:12px;width:min(260px,calc(100% - 16px));display:grid;gap:8px;padding:12px 14px;border:1px solid #79f2bf33;border-radius:16px;background:#0b1512ee;box-shadow:0 12px 32px #0008;pointer-events:none}
+.lift-tooltip[hidden]{display:none!important}
 .lift-tooltip header{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
 .lift-tooltip header strong{display:block;font-size:15px}
 .lift-tooltip header small{display:block;margin-top:4px;color:var(--muted);font-size:11px}

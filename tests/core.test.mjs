@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { EXERCISE_REFERENCES, FALLBACK_EXERCISES, LEGACY_EXERCISE_ID_MAP, adjustRest, applyRecordingMode, buildBodyCandidate, calculateSetVolume, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, mergeExerciseCatalog, nextSetDraft, recordingModeForSet, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise, displayLiftKg, estimated1rmKg, lookbackLiftDeltas, pointsInLiftRange, progressSeriesForExercise, summarizeLiftDay } from "../core.js";
+import { EXERCISE_REFERENCES, FALLBACK_EXERCISES, LEGACY_EXERCISE_ID_MAP, adjustRest, applyRecordingMode, buildBodyCandidate, calculateSetVolume, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, mergeExerciseCatalog, nextSetDraft, recordingModeForSet, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise, aggregateLiftPoints, displayLiftKg, estimated1rmKg, liftChartMarkup, lookbackLiftDeltas, pointsInLiftRange, progressSeriesForExercise, summarizeLiftDay } from "../core.js";
 
 const base = { exerciseId: "press", exerciseName: "哑铃推胸", weightValue: 10, weightUnit: "kg", reps: 12, completedAt: "2026-07-15T21:00:00+08:00", restSeconds: 90 };
 
@@ -218,4 +218,20 @@ test("daily lift points average every working set and keep set details", () => {
   ]);
   assert.equal(day.weightKg, 20);
   assert.equal(day.volumeKg, 200);
+});
+
+test("week grain averages session means and hides per-set lists", () => {
+  const points = [
+    { date: "2026-09-01", weightKg: 20, estimated1rmKg: 24, volumeKg: 200, setCount: 4, sets: [{ weightKg: 20 }] },
+    { date: "2026-09-03", weightKg: 24, estimated1rmKg: 28, volumeKg: 240, setCount: 3, sets: [{ weightKg: 24 }] },
+    { date: "2026-09-10", weightKg: 30, estimated1rmKg: 36, volumeKg: 300, setCount: 2, sets: [{ weightKg: 30 }] },
+  ];
+  const weeks = aggregateLiftPoints(points, "week");
+  assert.equal(weeks.length, 2);
+  assert.equal(weeks[0].sessionCount, 2);
+  assert.equal(weeks[0].weightKg, 22);
+  assert.deepEqual(weeks[0].sets, []);
+  const markup = liftChartMarkup(points, { grain: "session", escapeHTML: (value) => String(value) });
+  assert.match(markup, /class="lift-tooltip" hidden/);
+  assert.match(markup, /class="lift-line is-best"/);
 });

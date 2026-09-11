@@ -528,65 +528,140 @@ export function lookbackLiftDeltas(points) {
   return result;
 }
 
+export function liftIsoPeriod(dateStr, grain) {
+  const date = new Date(`${dateStr}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return null;
+  if (grain === "month") {
+    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+    return { key, label: `${date.getFullYear()}年${date.getMonth() + 1}月` };
+  }
+  if (grain === "year") return { key: String(date.getFullYear()), label: `${date.getFullYear()}年` };
+  const utc = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+  const day = new Date(utc).getUTCDay() || 7;
+  const thursday = new Date(utc);
+  thursday.setUTCDate(thursday.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(thursday.getUTCFullYear(), 0, 1));
+  const week = Math.ceil((((thursday - yearStart) / 86400000) + 1) / 7);
+  const year = thursday.getUTCFullYear();
+  return { key: `${year}-W${String(week).padStart(2, "0")}`, label: `${year}年第${week}周` };
+}
+
+export function aggregateLiftPoints(points, grain = "session") {
+  if (!grain || grain === "session" || grain === "day") return [...(points || [])];
+  const buckets = new Map();
+  for (const point of points || []) {
+    const period = liftIsoPeriod(point.date, grain);
+    if (!period) continue;
+    const bucket = buckets.get(period.key) || { key: period.key, label: period.label, items: [] };
+    bucket.items.push(point);
+    buckets.set(period.key, bucket);
+  }
+  return [...buckets.values()].sort((a, b) => a.key.localeCompare(b.key)).map((bucket) => {
+    const items = bucket.items;
+    const count = items.length;
+    const mean = (field) => Math.round(items.reduce((sum, item) => sum + Number(item[field] || 0), 0) / count * 10000) / 10000;
+    return {
+      date: items.at(-1).date,
+      periodKey: bucket.key,
+      periodLabel: bucket.label,
+      weightKg: mean("weightKg"),
+      estimated1rmKg: mean("estimated1rmKg"),
+      volumeKg: mean("volumeKg"),
+      reps: mean("reps"),
+      sessionCount: count,
+      setCount: items.reduce((sum, item) => sum + Number(item.setCount || 0), 0),
+      sets: [],
+      workoutId: items.at(-1).workoutId || "",
+    };
+  });
+}
+
 export function liftPointMetric(point, metric = "weight") {
   if (metric === "e1rm") return point?.estimated1rmKg;
   if (metric === "volume") return point?.volumeKg;
   return point?.weightKg;
 }
 
-export function liftPointDetailMarkup(point, { unit = "kg", metric = "weight", escapeHTML = (value) => String(value) } = {}) {
+export function liftPointDetailMarkup(point, { unit = "kg", grain = "session", escapeHTML = (value) => String(value) } = {}) {
   if (!point) return "";
-  const mean = displayLiftKg(liftPointMetric(point, metric), unit);
-  const meanLabel = metric === "e1rm" ? "估算 1RM 均值" : "当日均重";
+  const mean = displayLiftKg(point.weightKg, unit);
+  const best = displayLiftKg(point.estimated1rmKg, unit);
   const volume = displayLiftKg(point.volumeKg, unit);
+  const title = point.periodLabel || point.date;
+  if (grain !== "session") {
+    return `<header><div><strong>${escapeHTML(title)}</strong><small>${point.sessionCount || 0} 次 · 均重 ${mean} ${unit}</small></div><em>均容量 ${volume == null ? "—" : `${volume} ${unit}·次`}</em></header><p>切到「按次」可查看每一次里每一组的重量。</p>`;
+  }
   const sets = point.sets || [];
   const setRows = sets.map((item, index) => {
     const shown = displayLiftKg(item.weightKg, unit);
     return `<li><span>第 ${escapeHTML(item.setNumber || index + 1)} 组</span><strong>${shown} ${unit} × ${item.reps || 0}</strong><em>${displayLiftKg(item.volumeKg, unit)} ${unit}·次</em></li>`;
   }).join("");
-  return `<header><div><strong>${escapeHTML(point.date)}</strong><small>${point.setCount || sets.length} 组 · ${meanLabel} ${mean} ${unit}</small></div><em>均容量 ${volume == null ? "—" : `${volume} ${unit}·次`}</em></header>${setRows ? `<ol>${setRows}</ol>` : "<p>没有逐组记录</p>"}`;
+  return `<header><div><strong>${escapeHTML(point.date)}</strong><small>${point.setCount || sets.length} 组 · 当日均重 ${mean} ${unit}${best == null ? "" : ` · 估算 1RM ${best} ${unit}`}</small></div><em>均容量 ${volume == null ? "—" : `${volume} ${unit}·次`}</em></header>${setRows ? `<ol>${setRows}</ol>` : "<p>没有逐组记录</p>"}`;
 }
 
-export function liftChartMarkup(points, { unit = "kg", metric = "weight", large = false, activeIndex = -1, escapeHTML = (value) => String(value) } = {}) {
-  const values = points.map((point) => displayLiftKg(liftPointMetric(point, metric), unit));
-  if (!points.length || values.every((value) => value == null)) return `<div class="empty">暂无重量曲线</div>`;
-  const width = large ? 720 : 640, height = large ? 268 : 210;
-  const pad = { l: 46, r: 18, t: 22, b: 36 };
-  const present = values.map((value, index) => value == null ? null : { value, index }).filter(Boolean);
-  const minRaw = Math.min(...present.map((item) => item.value));
-  const maxRaw = Math.max(...present.map((item) => item.value));
+export function liftChartMarkup(points, { unit = "kg", grain = "session", large = false, activeIndex = -1, escapeHTML = (value) => String(value) } = {}) {
+  const weights = points.map((point) => displayLiftKg(point.weightKg, unit));
+  let running = null;
+  const bests = points.map((point) => {
+    const value = displayLiftKg(point.estimated1rmKg, unit);
+    running = value == null ? running : Math.max(running == null ? value : running, value);
+    return running;
+  });
+  const volumes = points.map((point) => displayLiftKg(point.volumeKg, unit));
+  if (!points.length || weights.every((value) => value == null)) return `<div class="empty">暂无重量曲线</div>`;
+  const width = large ? 720 : 640, height = large ? 280 : 228;
+  const pad = { l: 46, r: 40, t: 22, b: 36 };
+  const lineValues = [...weights, ...bests].filter((value) => value != null);
+  const minRaw = Math.min(...lineValues);
+  const maxRaw = Math.max(...lineValues);
   const padY = Math.max((maxRaw - minRaw) * 0.18, maxRaw * 0.04, 0.5);
   const min = Math.max(0, minRaw - padY);
   const max = maxRaw + padY;
   const span = Math.max(max - min, 0.001);
+  const volMax = Math.max(...volumes.map((value) => value || 0), 1);
   const innerW = width - pad.l - pad.r;
   const innerH = height - pad.t - pad.b;
   const xAt = (index) => pad.l + (points.length === 1 ? innerW / 2 : index * innerW / (points.length - 1));
   const yAt = (value) => pad.t + (max - value) / span * innerH;
-  const line = present.map((item, order) => `${order ? "L" : "M"}${xAt(item.index).toFixed(1)},${yAt(item.value).toFixed(1)}`).join(" ");
-  const area = `${line} L${xAt(present.at(-1).index).toFixed(1)},${(height - pad.b).toFixed(1)} L${xAt(present[0].index).toFixed(1)},${(height - pad.b).toFixed(1)} Z`;
+  const yVol = (value) => pad.t + innerH - (Number(value || 0) / volMax) * innerH * 0.72;
+  const barW = Math.max(6, Math.min(22, innerW / Math.max(points.length, 1) * 0.42));
+  const pathFor = (series) => series.map((value, index) => value == null ? "" : `${series.slice(0, index).some((item) => item != null) ? "L" : "M"}${xAt(index).toFixed(1)},${yAt(value).toFixed(1)}`).filter(Boolean).join(" ");
+  const weightLine = pathFor(weights);
+  const bestLine = pathFor(bests);
+  const area = `${weightLine} L${xAt(points.length - 1).toFixed(1)},${(height - pad.b).toFixed(1)} L${xAt(0).toFixed(1)},${(height - pad.b).toFixed(1)} Z`;
   const active = Math.max(0, Math.min(points.length - 1, activeIndex >= 0 ? activeIndex : points.length - 1));
   const ticks = [max, (max + min) / 2, min];
-  const labelIndexes = points.length <= 4 ? points.map((_, index) => index) : [0, Math.round((points.length - 1) / 2), points.length - 1];
-  const dateLabel = (value) => {
-    const parts = String(value || "").split("-");
-    return parts.length === 3 ? `${Number(parts[1])}/${Number(parts[2])}` : value;
+  const labelIndexes = points.length <= 6 ? points.map((_, index) => index) : [0, Math.round((points.length - 1) / 2), points.length - 1];
+  const axisLabel = (point) => {
+    if (point.periodLabel) return String(point.periodLabel).replace(/^\d+年/, "").replace("第", "W");
+    const parts = String(point.date || "").split("-");
+    return parts.length === 3 ? `${Number(parts[1])}/${Number(parts[2])}` : point.date;
   };
+  const fillId = `liftFill-${large ? "lg" : "sm"}-${Math.round(Math.random() * 1e9)}`;
+  const bars = volumes.map((value, index) => {
+    const h = height - pad.b - yVol(value);
+    return `<rect class="lift-bar" x="${(xAt(index) - barW / 2).toFixed(1)}" y="${yVol(value).toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(h, 0).toFixed(1)}" rx="3"></rect>`;
+  }).join("");
   return `<div class="lift-chart" data-lift-chart="${large ? "large" : "inline"}">
-    <svg viewBox="0 0 ${width} ${height}" data-lift-svg data-pad-l="${pad.l}" data-pad-r="${pad.r}" role="img" aria-label="按训练日均重绘制的进步曲线">
+    <div class="lift-legend"><span class="best">历史最佳 1RM</span><span class="work">工作组均重</span><span class="vol">训练量</span></div>
+    <div class="lift-plot">
+    <svg viewBox="0 0 ${width} ${height}" data-lift-svg data-pad-l="${pad.l}" data-pad-r="${pad.r}" role="img" aria-label="按次等距平铺的力量进步曲线">
       <defs>
-        <linearGradient id="liftFill-${large ? "lg" : "sm"}" x1="0" y1="0" x2="0" y2="1">
+        <linearGradient id="${fillId}" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stop-color="#79f2bf" stop-opacity="0.32"/>
           <stop offset="100%" stop-color="#79f2bf" stop-opacity="0"/>
         </linearGradient>
       </defs>
       ${ticks.map((tick) => `<g class="lift-grid"><line x1="${pad.l}" x2="${width - pad.r}" y1="${yAt(tick).toFixed(1)}" y2="${yAt(tick).toFixed(1)}"></line><text x="${pad.l - 8}" y="${yAt(tick).toFixed(1)}" dy="0.35em">${Math.round(tick * 10) / 10}</text></g>`).join("")}
-      <path class="lift-area" d="${area}" fill="url(#liftFill-${large ? "lg" : "sm"})"></path>
-      <path class="lift-line" d="${line}"></path>
-      ${present.map((item) => `<circle class="lift-hit" data-lift-index="${item.index}" cx="${xAt(item.index).toFixed(1)}" cy="${yAt(item.value).toFixed(1)}" r="16"></circle><circle class="lift-dot${item.index === active ? " is-active" : ""}" data-lift-index="${item.index}" cx="${xAt(item.index).toFixed(1)}" cy="${yAt(item.value).toFixed(1)}" r="${item.index === active ? 6.5 : 4.5}"></circle>`).join("")}
+      ${bars}
+      <path class="lift-area" d="${area}" fill="url(#${fillId})"></path>
+      <path class="lift-line is-best" d="${bestLine}"></path>
+      <path class="lift-line" d="${weightLine}"></path>
+      ${weights.map((value, index) => value == null ? "" : `<circle class="lift-hit" data-lift-index="${index}" cx="${xAt(index).toFixed(1)}" cy="${yAt(value).toFixed(1)}" r="16"></circle><circle class="lift-dot${index === active ? " is-active" : ""}" data-lift-index="${index}" cx="${xAt(index).toFixed(1)}" cy="${yAt(value).toFixed(1)}" r="${index === active ? 6.5 : 4.5}"></circle>`).join("")}
       <line class="lift-scrub" x1="${xAt(active).toFixed(1)}" x2="${xAt(active).toFixed(1)}" y1="${pad.t}" y2="${height - pad.b}"></line>
-      ${labelIndexes.map((index) => `<text class="lift-x" x="${xAt(index).toFixed(1)}" y="${height - 10}">${dateLabel(points[index].date)}</text>`).join("")}
+      ${labelIndexes.map((index) => `<text class="lift-x" x="${xAt(index).toFixed(1)}" y="${height - 10}">${escapeHTML(axisLabel(points[index]))}</text>`).join("")}
     </svg>
-    <div class="lift-tooltip">${liftPointDetailMarkup(points[active], { unit, metric, escapeHTML })}</div>
+    <div class="lift-tooltip" hidden>${liftPointDetailMarkup(points[active], { unit, grain, escapeHTML })}</div>
+    </div>
   </div>`;
 }
