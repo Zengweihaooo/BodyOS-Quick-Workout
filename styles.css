@@ -45,6 +45,7 @@
 .lift-deltas article{padding:12px;border:1px solid #ffffff12;border-radius:16px;background:#0b1017}
 .lift-deltas small{color:var(--muted);font-size:10px}
 .lift-deltas strong{display:block;margin-top:6px;font-size:18px}
+.lift-status{margin:0;color:var(--muted);font-size:12px}
 .lift-chart{touch-action:none;display:grid;gap:8px;color:var(--mint)}
 .lift-legend{display:flex;flex-wrap:wrap;gap:10px 14px;color:var(--muted);font-size:11px}
 .lift-legend span{display:inline-flex;align-items:center;gap:6px}

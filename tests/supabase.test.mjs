@@ -39,6 +39,7 @@ test("training snapshot is read with the signed-in owner token", async () => {
       { access_token: "signed-token", user: { id: "owner-id" } },
     );
     assert.match(requestUrl, /owner_id=eq.owner-id/);
+    assert.match(requestUrl, /order=generated_at\.desc/);
     assert.equal(authorization, "Bearer signed-token");
     assert.equal(snapshot.schemaVersion, "body.os.training-snapshot.v1");
     assert.equal(snapshot.generatedAt, "2026-07-28T00:00:00Z");

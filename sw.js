@@ -1,5 +1,5 @@
-const CACHE = "body-os-quick-workout-v22";
-const SHELL = ["./", "./index.html", "./styles.css", "./core.js?v=16", "./app.js?v=18", "./supabase.js?v=2", "./manifest.webmanifest", "./icon.svg"];
+const CACHE = "body-os-quick-workout-v23";
+const SHELL = ["./", "./index.html", "./styles.css", "./core.js?v=17", "./app.js?v=19", "./supabase.js?v=3", "./manifest.webmanifest", "./icon.svg"];
 self.addEventListener("install", (event) => event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting())));
 self.addEventListener("activate", (event) => event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key)))).then(() => self.clients.claim())));
 self.addEventListener("fetch", (event) => {

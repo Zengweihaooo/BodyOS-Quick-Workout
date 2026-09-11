@@ -220,6 +220,38 @@ test("daily lift points average every working set and keep set details", () => {
   assert.equal(day.volumeKg, 200);
 });
 
+test("lift history matches untitled Body OS rows by Chinese name", () => {
+  const series = progressSeriesForExercise({
+    workoutHistory: [{
+      id: "w-uuid", startedAt: "2026-08-20T20:00:00+08:00",
+      exercises: [{
+        exerciseId: "exercise_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        name: "哑铃平板推胸",
+        sets: [{ set_type: "working", weight_value: 22.5, weight_unit: "kg", reps: 8, completed: 1 }],
+      }],
+    }],
+  }, "dumbbell_flat_chest_press");
+  assert.equal(series.points.length, 1);
+  assert.equal(series.points[0].weightKg, 22.5);
+});
+
+test("lift history falls back to published exerciseProgress when workout ids differ", () => {
+  const series = progressSeriesForExercise({
+    workoutHistory: [{
+      id: "w1", startedAt: "2026-08-01T20:00:00+08:00",
+      exercises: [{ exerciseId: "other_move", name: "坐姿推肩", sets: [{ set_type: "working", weight_value: 10, weight_unit: "kg", reps: 8, completed: 1 }] }],
+    }],
+    exerciseProgress: {
+      dumbbell_flat_chest_press: {
+        name: "哑铃平板推胸",
+        points: [{ date: "2026-07-01", weightKg: 20, estimated1rmKg: 24, volumeKg: 160, setCount: 1, sets: [{ weightKg: 20, reps: 8 }] }],
+      },
+    },
+  }, "dumbbell_flat_chest_press");
+  assert.equal(series.points.length, 1);
+  assert.equal(series.points[0].weightKg, 20);
+});
+
 test("week grain averages session means and hides per-set lists", () => {
   const points = [
     { date: "2026-09-01", weightKg: 20, estimated1rmKg: 24, volumeKg: 200, setCount: 4, sets: [{ weightKg: 20 }] },

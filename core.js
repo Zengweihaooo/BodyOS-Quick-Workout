@@ -34,6 +34,49 @@ export const LEGACY_EXERCISE_ID_MAP = Object.freeze({
 
 export const canonicalExerciseId = (id) => LEGACY_EXERCISE_ID_MAP[id] || id;
 
+function catalogAliasSet(id) {
+  const canonical = canonicalExerciseId(id);
+  const aliases = new Set([canonical, String(id || "")].filter(Boolean).map((value) => value.toLowerCase()));
+  for (const [legacy, target] of Object.entries(LEGACY_EXERCISE_ID_MAP)) {
+    if (canonicalExerciseId(legacy) === canonical || target === canonical) {
+      aliases.add(legacy.toLowerCase());
+      aliases.add(String(target).toLowerCase());
+    }
+  }
+  for (const row of FALLBACK_EXERCISES) {
+    if (canonicalExerciseId(row.id) !== canonical) continue;
+    [row.id, row.name, row.canonicalNameEn].forEach((value) => value && aliases.add(String(value).toLowerCase()));
+  }
+  return aliases;
+}
+
+export function historyExerciseMatches(exercise, targetId) {
+  const aliases = catalogAliasSet(targetId);
+  return [exercise?.exerciseId, exercise?.id, exercise?.exercise_canonical_id, exercise?.name, exercise?.canonicalNameEn, exercise?.exerciseName]
+    .some((value) => value && aliases.has(String(value).trim().toLowerCase()));
+}
+
+export function lookupExerciseDefault(defaults, exerciseId) {
+  if (!defaults || typeof defaults !== "object") return null;
+  const id = canonicalExerciseId(exerciseId);
+  if (defaults[id]) return defaults[id];
+  const aliases = catalogAliasSet(id);
+  for (const [key, value] of Object.entries(defaults)) {
+    if (aliases.has(String(key).toLowerCase())) return value;
+  }
+  return null;
+}
+
+export function resolveCatalogExerciseId(exercise) {
+  const direct = canonicalExerciseId(exercise?.exerciseId || exercise?.id || "");
+  if (direct && FALLBACK_EXERCISES.some((row) => canonicalExerciseId(row.id) === direct)) return direct;
+  for (const row of FALLBACK_EXERCISES) {
+    const id = canonicalExerciseId(row.id);
+    if (historyExerciseMatches(exercise, id)) return id;
+  }
+  return direct;
+}
+
 export function mergeExerciseCatalog(base, cached = []) {
   const builtIn = (base || []).map((item) => ({ ...item, id: canonicalExerciseId(item.id) }));
   const seen = new Set(builtIn.map((item) => item.id));
@@ -467,7 +510,7 @@ export function progressSeriesForExercise(snapshot, exerciseId) {
   let name = snapshot?.exerciseProgress?.[id]?.name || id;
   for (const workout of snapshot?.workoutHistory || []) {
     for (const exercise of workout.exercises || []) {
-      if (canonicalExerciseId(exercise.exerciseId) !== id) continue;
+      if (!historyExerciseMatches(exercise, id)) continue;
       name = exercise.name || name;
       const date = String(workout.startedAt || "").slice(0, 10);
       if (!date) continue;
@@ -487,10 +530,19 @@ export function progressSeriesForExercise(snapshot, exerciseId) {
       if (day.sets.length) byDate.set(date, day);
     }
   }
-  const points = [...byDate.values()]
+  let points = [...byDate.values()]
     .map((day) => summarizeLiftDay(day.date, day.sets, day.workoutId))
     .filter(Boolean)
     .sort((a, b) => a.date.localeCompare(b.date));
+  if (!points.length) {
+    const progress = snapshot?.exerciseProgress || {};
+    const hit = progress[id]
+      || Object.values(progress).find((item) => historyExerciseMatches({ exerciseId: item?.exerciseId || item?.id, name: item?.name }, id));
+    if (hit?.points?.length) {
+      name = hit.name || name;
+      points = hit.points;
+    }
+  }
   return { name, points };
 }
 

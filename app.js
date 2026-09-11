@@ -1,5 +1,5 @@
-import { EXERCISE_CATALOG_VERSION, EXERCISE_REFERENCES, FALLBACK_EXERCISES, LOAD_LABELS, adjustRest, applyRecordingMode, buildBodyCandidate, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createExport, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, mergeExerciseCatalog, nextSetDraft, normalizeSet, recordingModeForSet, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise, aggregateLiftPoints, displayLiftKg, liftChartMarkup, liftPointDetailMarkup, lookbackLiftDeltas, progressSeriesForExercise } from "./core.js?v=16";
-import { fetchTrainingSnapshot, normalizeSupabaseConfig, refreshSession, sessionIsFresh, signInWithPassword, uploadWorkout } from "./supabase.js?v=2";
+import { EXERCISE_CATALOG_VERSION, EXERCISE_REFERENCES, FALLBACK_EXERCISES, LOAD_LABELS, adjustRest, applyRecordingMode, buildBodyCandidate, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createExport, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, lookupExerciseDefault, mergeExerciseCatalog, nextSetDraft, normalizeSet, recordingModeForSet, resolveCatalogExerciseId, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise, aggregateLiftPoints, displayLiftKg, liftChartMarkup, liftPointDetailMarkup, lookbackLiftDeltas, progressSeriesForExercise } from "./core.js?v=17";
+import { fetchTrainingSnapshot, normalizeSupabaseConfig, refreshSession, sessionIsFresh, signInWithPassword, uploadWorkout } from "./supabase.js?v=3";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const app = $("#app"), bottomBar = $("#bottomBar"), backButton = $("#backButton"), title = $("#screenTitle"), status = $("#networkStatus"), quickFinish = $("#quickFinish");
@@ -27,7 +27,8 @@ const TRAINING_PRESETS = [
   { key: "back_complete", group: "back", title: "背部完整", note: "垂直拉 · 水平拉 · 肩伸展", ids: ["assisted_close_grip_pull_up","neutral_grip_lat_pulldown","machine_row","straight_arm_pulldown"] },
 ];
 let state = { session: null, exercises: BASE_EXERCISES, screen: "home", draft: null, editingSetIndex: -1, selectedWatch: "", watchCandidates: [], importing: false, resetArmed: false, locale: "zh", pickerPresetKey: "", historyWorkoutId: "", historyMode: "workouts", historyExerciseId: "", liftUnit: "kg", liftGrain: "session", liftScrubIndex: -1, liftSheetOpen: false, training: { snapshot: null, busy: false, error: "" }, cloud: { config: null, session: null, busy: false } };
-let tickTimer = null, toastTimer = null, resetArmTimer = null;
+let tickTimer = null, toastTimer = null, resetArmTimer = null, trainingSnapshotTask = null;
+const SNAPSHOT_SCREENS = ["home", "cloud", "history", "entry", "picker", "summary"];
 const canDirectBodyOs = location.pathname.startsWith("/quick-workout/") && !location.hostname.endsWith("github.io") && location.protocol !== "file:";
 
 const DB = {
@@ -187,11 +188,12 @@ function renderCustomExercise() {
 function openExercise(id) {
   const exercise = state.exercises.find((x) => x.id === id) || fromSet(id); const previous = [...state.session.sets].reverse().find((x) => x.exerciseId === id);
   const grip = inferredGrip(exercise);
-  const cached = state.training.snapshot?.exerciseDefaults?.[canonicalExerciseId(id)] || null;
+  const cached = lookupExerciseDefault(state.training.snapshot?.exerciseDefaults, id);
   state.editingSetIndex = -1; state.session.currentExerciseId = id; state.draft = previous
     ? nextSetDraft({ ...previous, reference: exercise.reference, restSeconds: defaultRest(previous) })
     : normalizeSet({ ...draftFromExerciseDefault(exercise, cached), reference: exercise.reference, ...(!cached ? grip : {}) });
   navigate("entry");
+  refreshTrainingSnapshotForExercise();
 }
 function defaultRest() { return DEFAULT_REST_SECONDS; }
 
@@ -206,7 +208,7 @@ function editSessionSet(index) {
 
 function renderEntry() {
   const d = state.draft, count = state.session.sets.filter((s) => s.exerciseId === d.exerciseId).length, last = [...state.session.sets].reverse().find((s) => s.exerciseId === d.exerciseId);
-  const cached = !last ? state.training.snapshot?.exerciseDefaults?.[canonicalExerciseId(d.exerciseId)] : null;
+  const cached = !last ? lookupExerciseDefault(state.training.snapshot?.exerciseDefaults, d.exerciseId) : null;
   const prescription = state.training.snapshot?.today?.exercises?.find((item) => canonicalExerciseId(item.exerciseId) === canonicalExerciseId(d.exerciseId));
   const editing = Number.isInteger(state.editingSetIndex) && state.editingSetIndex >= 0;
   const unit = d.weightUnit === "lb" ? "lb" : "kg", step = unit === "lb" ? 5 : 2.5;
@@ -291,29 +293,40 @@ async function ensureCloudSession() {
 
 async function loadTrainingSnapshot({ quiet = false } = {}) {
   if (!navigator.onLine) return state.training.snapshot;
-  state.training.busy = true; state.training.error = "";
-  if (!quiet && ["home", "cloud", "history"].includes(state.screen)) render();
-  try {
-    let snapshot = null;
-    if (canDirectBodyOs) {
-      const response = await fetch("/api/training/pages-snapshot");
-      if (!response.ok) throw new Error("Body.OS 训练快照读取失败");
-      snapshot = await response.json();
-    } else {
-      if (!state.cloud.config || !state.cloud.session) throw new Error("登录 Supabase 后即可同步训练数据");
-      const session = await ensureCloudSession();
-      snapshot = await fetchTrainingSnapshot(state.cloud.config, session);
-      if (!snapshot) throw new Error("云端还没有训练快照；请先启动一次本地 Body.OS");
+  if (trainingSnapshotTask) return trainingSnapshotTask;
+  trainingSnapshotTask = (async () => {
+    state.training.busy = true; state.training.error = "";
+    if (!quiet && SNAPSHOT_SCREENS.includes(state.screen)) render();
+    try {
+      let snapshot = null;
+      if (canDirectBodyOs) {
+        const response = await fetch("/api/training/pages-snapshot");
+        if (!response.ok) throw new Error("Body.OS 训练快照读取失败");
+        snapshot = await response.json();
+      } else {
+        if (!state.cloud.config || !state.cloud.session) throw new Error("登录 Supabase 后即可同步训练数据");
+        const session = await ensureCloudSession();
+        snapshot = await fetchTrainingSnapshot(state.cloud.config, session);
+        if (!snapshot) throw new Error("云端还没有训练快照；请先启动一次本地 Body.OS");
+      }
+      state.training.snapshot = snapshot;
+      await DB.set("training-snapshot", snapshot);
+      state.training.error = "";
+    } catch (error) {
+      state.training.error = error.message || "训练数据同步失败";
     }
-    state.training.snapshot = snapshot;
-    await DB.set("training-snapshot", snapshot);
-    state.training.error = "";
-  } catch (error) {
-    state.training.error = error.message || "训练数据同步失败";
-  }
-  state.training.busy = false;
-  if (!quiet && ["home", "cloud", "history"].includes(state.screen)) render();
-  return state.training.snapshot;
+    state.training.busy = false;
+    if (!quiet && SNAPSHOT_SCREENS.includes(state.screen)) render();
+    return state.training.snapshot;
+  })();
+  try { return await trainingSnapshotTask; }
+  finally { trainingSnapshotTask = null; }
+}
+
+function refreshTrainingSnapshotForExercise() {
+  if (!navigator.onLine) return;
+  if (!(canDirectBodyOs || (state.cloud.config && state.cloud.session))) return;
+  loadTrainingSnapshot();
 }
 
 async function syncCurrentWorkoutToCloud() {
@@ -359,7 +372,7 @@ function previousComparableWorkout(history, index) {
 function exerciseHistoryGroups(history) {
   const groups = new Map();
   history.forEach((workout) => (workout.exercises || []).forEach((exercise) => {
-    const id = canonicalExerciseId(exercise.exerciseId);
+    const id = resolveCatalogExerciseId(exercise);
     if (!id || !(exercise.sets || []).length) return;
     const group = groups.get(id) || { id, name: exercise.name || id, records: [], sets: 0, reps: 0, volume: 0 };
     const sets = exercise.sets || [];
@@ -457,13 +470,27 @@ function liftProgressPanel(exerciseId, large = false) {
   const deltas = lookbackLiftDeltas(series.points);
   const label = (key, title) => {
     const item = deltas[key];
-    if (!item) return `<article><small>${title}</small><strong>没有对比</strong></article>`;
+    if (!item) return "";
     const shown = displayLiftKg(item.deltaWeightKg, unit);
     const sign = shown > 0 ? "+" : "";
     return `<article><small>${title}</small><strong>${sign}${shown} ${unit}</strong></article>`;
   };
+  const previous = (series.points || []).length > 1 ? (() => {
+    const latest = series.points.at(-1), before = series.points.at(-2);
+    const shown = displayLiftKg(Math.round((Number(latest.weightKg) - Number(before.weightKg)) * 10000) / 10000, unit);
+    const sign = shown > 0 ? "+" : "";
+    return `<article><small>较上次</small><strong>${sign}${shown} ${unit}</strong></article>`;
+  })() : "";
+  const deltaRow = `${previous}${label("week","周进步")}${label("month","月进步")}${label("quarter","季度进步")}${label("year","年进步")}`;
+  const status = state.training.busy
+    ? "正在从云端拉取该动作的历史重量…"
+    : state.training.error && !points.length
+      ? state.training.error
+      : !points.length && (canDirectBodyOs || state.cloud.session)
+        ? "云端这份动作还没有可用的重量历史。"
+        : !points.length ? "登录 Supabase 后打开动作会自动拉取历史。" : "";
   const grainHint = grain === "session" ? "每个点是一次训练当天工作组的平均重量；悬停或按住拖动可看全部组。" : "每个点是该时段内各次训练日均重的再平均。";
-  return `<section class="lift-progress"><div class="lift-progress-head"><div><span class="label">进步栏</span><h2>${escapeHTML(series.name || "动作曲线")}</h2><p>${grainHint}</p></div><div class="lift-switch"><button type="button" class="${unit === "kg" ? "active" : ""}" data-lift-unit="kg">kg</button><button type="button" class="${unit === "lb" ? "active" : ""}" data-lift-unit="lb">lb</button></div></div><div class="lift-ranges">${[["session","按次"],["week","按周"],["month","按月"],["year","按年"]].map(([key,labelText]) => `<button type="button" class="${grain === key ? "active" : ""}" data-lift-grain="${key}">${labelText}</button>`).join("")}</div><div class="lift-deltas">${label("week","周进步")}${label("month","月进步")}${label("quarter","季度进步")}${label("year","年进步")}</div>${liftChartMarkup(points, { unit, grain, large, activeIndex: state.liftScrubIndex, escapeHTML })}${large ? "" : `<button class="secondary" id="openLiftSheet" type="button">放大曲线</button>`}</section>`;
+  return `<section class="lift-progress"><div class="lift-progress-head"><div><span class="label">进步栏</span><h2>${escapeHTML(series.name || "动作曲线")}</h2><p>${grainHint}</p></div><div class="lift-switch"><button type="button" class="${unit === "kg" ? "active" : ""}" data-lift-unit="kg">kg</button><button type="button" class="${unit === "lb" ? "active" : ""}" data-lift-unit="lb">lb</button></div></div><div class="lift-ranges">${[["session","按次"],["week","按周"],["month","按月"],["year","按年"]].map(([key,labelText]) => `<button type="button" class="${grain === key ? "active" : ""}" data-lift-grain="${key}">${labelText}</button>`).join("")}</div>${deltaRow ? `<div class="lift-deltas">${deltaRow}</div>` : ""}${status ? `<p class="lift-status">${escapeHTML(status)}</p>` : ""}${liftChartMarkup(points, { unit, grain, large, activeIndex: state.liftScrubIndex, escapeHTML })}${large ? "" : `<button class="secondary" id="openLiftSheet" type="button">放大曲线</button>`}</section>`;
 }
 
 function bindLiftProgressControls(root, exerciseId) {
@@ -504,7 +531,7 @@ function renderExerciseHistory(history) {
   $("#historyWorkoutMode").onclick = () => { state.historyMode = "workouts"; renderHistory(); };
   $("#historyBack").onclick = () => navigate("home");
   $("#historyRefresh").onclick = () => loadTrainingSnapshot();
-  document.querySelectorAll("[data-history-exercise]").forEach((button) => button.onclick = () => { state.historyExerciseId = button.dataset.historyExercise; renderHistory(); });
+  document.querySelectorAll("[data-history-exercise]").forEach((button) => button.onclick = () => { state.historyExerciseId = button.dataset.historyExercise; renderHistory(); refreshTrainingSnapshotForExercise(); });
 }
 
 function renderHistory() {

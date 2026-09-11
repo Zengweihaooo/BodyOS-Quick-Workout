@@ -63,7 +63,7 @@ export async function fetchTrainingSnapshot(config, session) {
   const owner = encodeURIComponent(session.user.id);
   const rows = await request(
     config,
-    `/rest/v1/body_os_training_snapshots?select=payload,generated_at&owner_id=eq.${owner}&limit=1`,
+    `/rest/v1/body_os_training_snapshots?select=payload,generated_at&owner_id=eq.${owner}&order=generated_at.desc&limit=1`,
     { headers: { Authorization: `Bearer ${session.access_token}` } },
   );
   const row = Array.isArray(rows) ? rows[0] : null;
