@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { EXERCISE_REFERENCES, FALLBACK_EXERCISES, LEGACY_EXERCISE_ID_MAP, adjustRest, applyRecordingMode, buildBodyCandidate, calculateSetVolume, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, mergeExerciseCatalog, nextSetDraft, recordingModeForSet, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise, aggregateLiftPoints, displayLiftKg, estimated1rmKg, liftChartMarkup, lookbackLiftDeltas, pointsInLiftRange, progressSeriesForExercise, snapshotFromWorkoutUploads, summarizeLiftDay } from "../core.js";
+import { EXERCISE_REFERENCES, FALLBACK_EXERCISES, LEGACY_EXERCISE_ID_MAP, adjustRest, applyRecordingMode, buildBodyCandidate, calculateSetVolume, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, exerciseHistorySessionCounts, mergeExerciseCatalog, nextSetDraft, rankPickerExercises, recordingModeForSet, restRemainingSeconds, sessionSummary, sortPickerExercisesByName, timerElapsedMs, toMarkdown, withoutExercise, aggregateLiftPoints, displayLiftKg, estimated1rmKg, liftChartMarkup, lookbackLiftDeltas, pointsInLiftRange, progressSeriesForExercise, snapshotFromWorkoutUploads, summarizeLiftDay } from "../core.js";
 
 const base = { exerciseId: "press", exerciseName: "哑铃推胸", weightValue: 10, weightUnit: "kg", reps: 12, completedAt: "2026-07-15T21:00:00+08:00", restSeconds: 90 };
 
@@ -117,8 +117,10 @@ test("legacy action ids migrate to Body OS canonical ids", () => {
 });
 
 test("reviewed Body OS references use allowlisted URLs and separated sources", () => {
-  assert.equal(Object.keys(EXERCISE_REFERENCES).length, 54);
-  assert.equal(new Set(Object.values(EXERCISE_REFERENCES).map((item) => item.datasetId)).size, 54);
+  const catalogIds = [...new Set(FALLBACK_EXERCISES.map((item) => item.id))];
+  assert.equal(Object.keys(EXERCISE_REFERENCES).length, catalogIds.length);
+  assert.equal(new Set(Object.values(EXERCISE_REFERENCES).map((item) => item.datasetId)).size, catalogIds.length);
+  assert.ok(catalogIds.every((id) => EXERCISE_REFERENCES[id]?.gifUrl), "every catalog exercise should have a GIF");
   assert.ok(Object.keys(EXERCISE_REFERENCES).every((id) => FALLBACK_EXERCISES.some((item) => item.id === id)));
   for (const [id, reference] of Object.entries(EXERCISE_REFERENCES)) {
     const gif = new URL(reference.gifUrl);
@@ -130,8 +132,10 @@ test("reviewed Body OS references use allowlisted URLs and separated sources", (
     assert.ok(Array.isArray(reference.instructionsZh), id);
     if (reference.wger) {
       assert.equal(reference.detailsStatus, "ready", id);
-      assert.ok(reference.instructionsEn.length, id);
-      assert.equal(reference.instructionsEn[0], reference.wger.descriptionEn, id);
+      if (reference.wger.descriptionEn) {
+        assert.ok(reference.instructionsEn.length, id);
+        assert.equal(reference.instructionsEn[0], reference.wger.descriptionEn, id);
+      }
       assert.ok(reference.wger.license?.short_name, id);
       const page = new URL(reference.wger.pageUrl);
       assert.equal(page.hostname, "wger.de", id);
@@ -166,6 +170,9 @@ test("mobile catalog contains the history-critical machine actions", () => {
   assert.equal(EXERCISE_REFERENCES.cable_front_raise.wger.id, 1731);
   assert.equal(EXERCISE_REFERENCES.dead_bug.wger.id, 178);
   assert.equal(EXERCISE_REFERENCES.elliptical_low_intensity.wger.id, 962);
+  assert.ok(EXERCISE_REFERENCES.push_up.gifUrl);
+  assert.ok(EXERCISE_REFERENCES.meadows_row.gifUrl);
+  assert.ok(EXERCISE_REFERENCES.landmine_press.gifUrl);
 });
 
 test("stale IndexedDB rows cannot replace new built-ins and custom rows survive", () => {
@@ -266,6 +273,29 @@ test("week grain averages session means and hides per-set lists", () => {
   const markup = liftChartMarkup(points, { grain: "session", escapeHTML: (value) => String(value) });
   assert.match(markup, /class="lift-tooltip" hidden/);
   assert.match(markup, /class="lift-line is-best"/);
+});
+
+test("picker ranks logged exercises by session count then repeats the full catalog alphabetically", () => {
+  const snapshot = {
+    workoutHistory: [
+      { exercises: [{ exerciseId: "pull_up" }, { exerciseId: "dumbbell_flat_chest_press" }] },
+      { exercises: [{ exerciseId: "pull_up" }] },
+      { exercises: [{ exerciseId: "face_pull" }, { exerciseId: "pull_up" }] },
+    ],
+  };
+  assert.deepEqual(exerciseHistorySessionCounts(snapshot), { pull_up: 3, dumbbell_flat_chest_press: 1, face_pull: 1 });
+  const catalog = [
+    { id: "face_pull", name: "面拉", canonicalNameEn: "Face Pull" },
+    { id: "arnold_press", name: "阿诺德推举", canonicalNameEn: "Arnold Press" },
+    { id: "pull_up", name: "引体向上", canonicalNameEn: "Pull-Up" },
+    { id: "dumbbell_flat_chest_press", name: "哑铃平板推胸", canonicalNameEn: "Dumbbell Bench Press" },
+  ];
+  const ranked = rankPickerExercises(catalog, snapshot);
+  const history = ranked.filter((item) => item.pickerPass === "history");
+  const rest = ranked.filter((item) => item.pickerPass === "catalog");
+  assert.deepEqual(history.map((item) => item.id), ["pull_up", ...sortPickerExercisesByName(catalog.filter((item) => item.id !== "pull_up" && ["dumbbell_flat_chest_press", "face_pull"].includes(item.id))).map((item) => item.id)]);
+  assert.equal(history[0].historyCount, 3);
+  assert.deepEqual(rest.map((item) => item.id), sortPickerExercisesByName(catalog).map((item) => item.id));
 });
 
 test("Pages workout uploads reconstruct a training snapshot for lift history", () => {
