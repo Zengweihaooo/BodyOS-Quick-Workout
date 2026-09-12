@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { EXERCISE_REFERENCES, FALLBACK_EXERCISES, LEGACY_EXERCISE_ID_MAP, adjustRest, applyRecordingMode, buildBodyCandidate, calculateSetVolume, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, exerciseHistorySessionCounts, mergeExerciseCatalog, nextSetDraft, rankPickerExercises, recordingModeForSet, restRemainingSeconds, sessionSummary, sortPickerExercisesByName, timerElapsedMs, toMarkdown, withoutExercise, aggregateLiftPoints, displayLiftKg, estimated1rmKg, liftChartMarkup, lookbackLiftDeltas, pointsInLiftRange, progressSeriesForExercise, snapshotFromWorkoutUploads, summarizeLiftDay } from "../core.js";
+import { EXERCISE_REFERENCES, FALLBACK_EXERCISES, LEGACY_EXERCISE_ID_MAP, adjustRest, applyRecordingMode, buildBodyCandidate, calculateSetVolume, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, exerciseHistorySessionCounts, groupPickerCatalogByLetter, mergeExerciseCatalog, nextSetDraft, pickerLetter, pickerLetterTarget, rankPickerExercises, recordingModeForSet, restRemainingSeconds, sessionSummary, sortPickerExercisesByName, timerElapsedMs, toMarkdown, withoutExercise, aggregateLiftPoints, displayLiftKg, estimated1rmKg, liftChartMarkup, lookbackLiftDeltas, pointsInLiftRange, progressSeriesForExercise, snapshotFromWorkoutUploads, summarizeLiftDay } from "../core.js";
 
 const base = { exerciseId: "press", exerciseName: "哑铃推胸", weightValue: 10, weightUnit: "kg", reps: 12, completedAt: "2026-07-15T21:00:00+08:00", restSeconds: 90 };
 
@@ -296,6 +296,23 @@ test("picker ranks logged exercises by session count then repeats the full catal
   assert.deepEqual(history.map((item) => item.id), ["pull_up", ...sortPickerExercisesByName(catalog.filter((item) => item.id !== "pull_up" && ["dumbbell_flat_chest_press", "face_pull"].includes(item.id))).map((item) => item.id)]);
   assert.equal(history[0].historyCount, 3);
   assert.deepEqual(rest.map((item) => item.id), sortPickerExercisesByName(catalog).map((item) => item.id));
+});
+
+test("picker A-Z index uses English initials and jumps to the next available letter", () => {
+  assert.equal(pickerLetter({ canonicalNameEn: "Arnold Press" }), "A");
+  assert.equal(pickerLetter({ canonicalNameEn: "Pull-Up" }), "P");
+  assert.equal(pickerLetter({ name: "自定义动作" }), "#");
+  const groups = groupPickerCatalogByLetter([
+    { id: "face_pull", canonicalNameEn: "Face Pull" },
+    { id: "farmers_walk", canonicalNameEn: "Farmer's Walk" },
+    { id: "arnold_press", canonicalNameEn: "Arnold Press" },
+  ]);
+  assert.deepEqual(groups.map((group) => [group.letter, group.exercises.map((item) => item.id)]), [
+    ["A", ["arnold_press"]],
+    ["F", ["face_pull", "farmers_walk"]],
+  ]);
+  assert.equal(pickerLetterTarget("C", ["A", "F"]), "F");
+  assert.equal(pickerLetterTarget("Z", ["A", "F"]), "F");
 });
 
 test("Pages workout uploads reconstruct a training snapshot for lift history", () => {

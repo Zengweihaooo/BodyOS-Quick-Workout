@@ -1,4 +1,4 @@
-import { EXERCISE_CATALOG_VERSION, EXERCISE_REFERENCES, FALLBACK_EXERCISES, LOAD_LABELS, adjustRest, applyRecordingMode, buildBodyCandidate, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createExport, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, lookupExerciseDefault, mergeExerciseCatalog, nextSetDraft, normalizeSet, rankPickerExercises, recordingModeForSet, resolveCatalogExerciseId, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise, aggregateLiftPoints, displayLiftKg, liftChartMarkup, liftPointDetailMarkup, lookbackLiftDeltas, progressSeriesForExercise } from "./core.js?v=19";
+import { EXERCISE_CATALOG_VERSION, EXERCISE_REFERENCES, FALLBACK_EXERCISES, LOAD_LABELS, PICKER_ALPHABET, adjustRest, applyRecordingMode, buildBodyCandidate, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createExport, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, groupPickerCatalogByLetter, lookupExerciseDefault, mergeExerciseCatalog, nextSetDraft, normalizeSet, pickerLetterTarget, rankPickerExercises, recordingModeForSet, resolveCatalogExerciseId, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise, aggregateLiftPoints, displayLiftKg, liftChartMarkup, liftPointDetailMarkup, lookbackLiftDeltas, progressSeriesForExercise } from "./core.js?v=20";
 import { fetchTrainingSnapshot, normalizeSupabaseConfig, refreshSession, sessionIsFresh, signInWithPassword, uploadWorkout } from "./supabase.js?v=5";
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -150,12 +150,44 @@ function renderHome() {
 
 function fromSet(id) { const set = state.session.sets.find((x) => x.exerciseId === id); return { ...set, id, name: set.exerciseName }; }
 function exerciseCard(exercise, prescribedSets = 0) { if (!exercise) return ""; const count = state.session.sets.filter((s) => canonicalExerciseId(s.exerciseId) === exercise.id).length; const reference = exercise.reference || {}; const wgerUrl = safeExternalUrl(reference.wger?.videoUrl || reference.wger?.pageUrl, "wger"); const prescription = prescribedSets ? ` · ${localeText(`计划 ${prescribedSets} 组`, `${prescribedSets} planned sets`)}` : ""; const historyNote = exercise.pickerPass === "history" && exercise.historyCount ? ` · ${localeText(`${exercise.historyCount} 次记录`, `${exercise.historyCount} sessions`)}` : ""; const card = `<button class="exercise-card ${reference.gifUrl ? "has-media" : ""}" data-exercise="${escapeHTML(exercise.id)}"><span class="exercise-icon">${exerciseIcon(exercise)}</span><span>${exerciseLabel(exercise)}<small>${escapeHTML(exercise.equipment || localeText("标准动作", "Standard"))} · ${LOAD_LABELS[exercise.loadMode] || localeText("重量", "Load")}${prescription}${historyNote}${count ? ` · ${count} ${localeText("已完成组", "completed sets")}` : ""}</small>${reference.datasetId ? `<em class="reference-match">dataset ${escapeHTML(reference.datasetId)}${reference.wger ? ` · wger ${reference.wger.matchType === "exact" ? localeText("已匹配", "matched") : localeText("通用参考", "reference")}` : ""}</em>` : ""}</span><span class="chevron">›</span></button>`; const external = wgerUrl ? `<a class="exercise-reference-link" href="${escapeHTML(wgerUrl)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" aria-label="${escapeHTML(localeText(`在 wger 查看 ${exercise.name}`, `View ${exercise.canonicalNameEn || exercise.name} on wger`))}">↗</a>` : ""; return `<div class="exercise-card-wrap">${card}${external}${count ? `<button class="exercise-delete" data-delete-exercise="${escapeHTML(exercise.id)}" aria-label="删除 ${escapeHTML(exercise.name)}">×</button>` : ""}</div>`; }
-function bindExerciseCards() { document.querySelectorAll("[data-exercise]").forEach((button) => button.onclick = () => openExercise(button.dataset.exercise)); }
+function bindPickerAlphabet(az, hud, available) {
+  if (!az) return;
+  const jump = (letter) => {
+    const target = pickerLetterTarget(letter, available);
+    const node = document.querySelector(`[data-picker-letter="${target}"]`);
+    if (!node) return;
+    const offset = (document.querySelector(".topbar")?.getBoundingClientRect().height || 72) + 6;
+    window.scrollTo({ top: Math.max(0, node.getBoundingClientRect().top + window.scrollY - offset), behavior: "auto" });
+    az.querySelectorAll("[data-az]").forEach((button) => button.classList.toggle("active", button.dataset.az === target));
+    if (hud) {
+      hud.textContent = target;
+      hud.classList.remove("hidden");
+    }
+  };
+  const letterAt = (clientY) => {
+    const buttons = [...az.querySelectorAll("[data-az]")];
+    const rect = az.getBoundingClientRect();
+    const index = Math.max(0, Math.min(buttons.length - 1, Math.floor(((clientY - rect.top) / Math.max(rect.height, 1)) * buttons.length)));
+    return buttons[index]?.dataset.az || "";
+  };
+  const hideHud = () => hud?.classList.add("hidden");
+  az.onpointerdown = (event) => {
+    event.preventDefault();
+    az.setPointerCapture?.(event.pointerId);
+    jump(event.target.closest("[data-az]")?.dataset.az || letterAt(event.clientY));
+  };
+  az.onpointermove = (event) => {
+    if (!az.hasPointerCapture?.(event.pointerId)) return;
+    jump(letterAt(event.clientY));
+  };
+  az.onpointerup = hideHud;
+  az.onpointercancel = hideHud;
+}
 
 function renderPicker() {
   setScreenHeading(localeText("选择动作", "Choose exercise"));
-  app.innerHTML = `<div class="picker-actions"><input class="search" id="search" type="search" placeholder="${localeText("搜索动作、器械或英文名", "Search exercise, equipment or Chinese name")}" autocomplete="off" aria-label="搜索动作"><button class="custom-action" id="addCustom">＋ ${localeText("自定义", "Custom")}</button></div><section class="category-guide"><div class="section-head"><h2>${localeText("按部位或完整组合选择", "Browse by body part or preset")}</h2><span class="label">${localeText("休息日自由安排", "Flexible rest days")}</span></div><div class="chip-row"><button class="chip active" data-filter="">${localeText("全部", "All")}</button><button class="chip" data-filter="chest">${localeText("胸", "Chest")}</button><button class="chip" data-filter="back">${localeText("背", "Back")}</button><button class="chip" data-filter="shoulders">${localeText("肩", "Shoulders")}</button><button class="chip" data-filter="core">${localeText("核心", "Core")}</button><button class="chip" data-filter="cardio">${localeText("有氧", "Cardio")}</button><button class="chip" data-filter="arms">${localeText("手臂", "Arms")}</button><button class="chip" data-filter="legs">${localeText("腿（暂停）", "Legs (paused)")}</button></div></section><section class="preset-guide" id="presetGuide"></section><div class="card-list" id="exerciseList"></div><aside class="source-policy"><strong>${localeText("来源与隐私", "Sources & privacy")}</strong><span>${localeText("动图仅远程引用 exercise dataset；动作详情仅显示 wger 内容。训练数据保存在此浏览器的 IndexedDB，不会自动上传。", "Animations are remote exercise-dataset references; guides come only from wger. Workout data stays in this browser's IndexedDB unless you export it.")}</span></aside>`;
-  const list = $("#exerciseList"), search = $("#search"), guide = $("#presetGuide");
+  app.innerHTML = `<div class="picker-actions"><input class="search" id="search" type="search" placeholder="${localeText("搜索动作、器械或英文名", "Search exercise, equipment or Chinese name")}" autocomplete="off" aria-label="搜索动作"><button class="custom-action" id="addCustom">＋ ${localeText("自定义", "Custom")}</button></div><section class="category-guide"><div class="section-head"><h2>${localeText("按部位或完整组合选择", "Browse by body part or preset")}</h2><span class="label">${localeText("休息日自由安排", "Flexible rest days")}</span></div><div class="chip-row"><button class="chip active" data-filter="">${localeText("全部", "All")}</button><button class="chip" data-filter="chest">${localeText("胸", "Chest")}</button><button class="chip" data-filter="back">${localeText("背", "Back")}</button><button class="chip" data-filter="shoulders">${localeText("肩", "Shoulders")}</button><button class="chip" data-filter="core">${localeText("核心", "Core")}</button><button class="chip" data-filter="cardio">${localeText("有氧", "Cardio")}</button><button class="chip" data-filter="arms">${localeText("手臂", "Arms")}</button><button class="chip" data-filter="legs">${localeText("腿（暂停）", "Legs (paused)")}</button></div></section><section class="preset-guide" id="presetGuide"></section><div class="picker-list-shell"><div class="card-list" id="exerciseList"></div><nav class="picker-az hidden" id="pickerAz" aria-label="${localeText("字母索引", "A to Z index")}"></nav><div class="picker-az-hud hidden" id="pickerAzHud" aria-hidden="true"></div></div><aside class="source-policy"><strong>${localeText("来源与隐私", "Sources & privacy")}</strong><span>${localeText("动图仅远程引用 exercise dataset；动作详情仅显示 wger 内容。训练数据保存在此浏览器的 IndexedDB，不会自动上传。", "Animations are remote exercise-dataset references; guides come only from wger. Workout data stays in this browser's IndexedDB unless you export it.")}</span></aside>`;
+    const list = $("#exerciseList"), search = $("#search"), guide = $("#presetGuide"), az = $("#pickerAz"), hud = $("#pickerAzHud");
   const today = state.training.snapshot?.today;
   const remotePreset = today?.exercises?.length ? { key: "bodyos_today", group: "", title: today.title || "Body.OS 今日推荐", titleEn: "Body.OS plan for today", note: `${today.exercises.reduce((sum, item) => sum + Number(item.sets || 0), 0)} 组 · ${today.readinessLabel || "已同步"}`, ids: today.exercises.map((item) => canonicalExerciseId(item.exerciseId)), sets: Object.fromEntries(today.exercises.map((item) => [canonicalExerciseId(item.exerciseId), Number(item.sets || 0)])) } : null;
   const presets = remotePreset ? [remotePreset, ...TRAINING_PRESETS] : TRAINING_PRESETS;
@@ -169,14 +201,20 @@ function renderPicker() {
     const matches = state.exercises.filter((x) => (allowedIds ? allowedIds.has(x.id) : (!filter || exerciseCategory(x) === filter)) && words.every((word) => `${x.name} ${x.canonicalNameEn || ""} ${x.equipment || ""} ${x.movementPattern || ""}`.toLowerCase().includes(word)));
     if (!matches.length) {
       list.innerHTML = `<div class="empty">这个分类下没有找到动作，试试搜索或“全部”。</div>`;
+      az?.classList.add("hidden");
     } else if (preset) {
       matches.sort((left, right) => preset.ids.indexOf(left.id) - preset.ids.indexOf(right.id));
       list.innerHTML = matches.map((exercise) => exerciseCard(exercise, preset?.sets?.[exercise.id] || 0)).join("");
+      az?.classList.add("hidden");
     } else {
       const ranked = rankPickerExercises(matches, state.training.snapshot);
       const history = ranked.filter((item) => item.pickerPass === "history");
-      const catalog = ranked.filter((item) => item.pickerPass === "catalog");
-      list.innerHTML = `${history.length ? `<div class="picker-section-label">${localeText("常练动作 · 按记录次数", "Logged · most sessions first")}</div>${history.map((exercise) => exerciseCard(exercise, 0)).join("")}` : ""}<div class="picker-section-label">${localeText("全部动作 · 按名称", "All exercises · A–Z")}</div>${catalog.map((exercise) => exerciseCard(exercise, 0)).join("")}`;
+      const groups = groupPickerCatalogByLetter(ranked.filter((item) => item.pickerPass === "catalog"));
+      const available = new Set(groups.map((group) => group.letter));
+      list.innerHTML = `${history.length ? `<div class="picker-section-label">${localeText("常练动作 · 按记录次数", "Logged · most sessions first")}</div>${history.map((exercise) => exerciseCard(exercise, 0)).join("")}` : ""}<div class="picker-section-label">${localeText("全部动作 · A–Z", "All exercises · A–Z")}</div>${groups.map((group) => `<div class="picker-letter-head" id="picker-letter-${group.letter === "#" ? "other" : group.letter}" data-picker-letter="${group.letter}">${group.letter}</div>${group.exercises.map((exercise) => exerciseCard(exercise, 0)).join("")}`).join("")}`;
+      az.classList.remove("hidden");
+      az.innerHTML = PICKER_ALPHABET.map((letter) => `<button type="button" data-az="${letter}" class="${available.has(letter) ? "" : "empty"}" aria-label="${letter}">${letter}</button>`).join("");
+      bindPickerAlphabet(az, hud, available);
     }
     bindExerciseCards(); bindSessionManagement();
   };

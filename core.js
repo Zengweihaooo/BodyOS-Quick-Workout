@@ -91,12 +91,46 @@ export function exerciseHistorySessionCounts(snapshot) {
   return counts;
 }
 
-function pickerExerciseName(exercise) {
-  return `${exercise?.name || ""} ${exercise?.canonicalNameEn || ""}`.trim();
+export function pickerSortName(exercise) {
+  return String(exercise?.canonicalNameEn || exercise?.name || "").trim();
 }
 
+export function pickerLetter(exercise) {
+  const first = pickerSortName(exercise).normalize("NFD").replace(/\p{M}/gu, "").charAt(0).toUpperCase();
+  return /[A-Z]/.test(first) ? first : "#";
+}
+
+export const PICKER_ALPHABET = Object.freeze([... "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "#"]);
+
 export function sortPickerExercisesByName(exercises) {
-  return [...(exercises || [])].sort((left, right) => pickerExerciseName(left).localeCompare(pickerExerciseName(right), "zh", { sensitivity: "base" }) || String(left.id || "").localeCompare(String(right.id || "")));
+  return [...(exercises || [])].sort((left, right) => {
+    const letterDelta = PICKER_ALPHABET.indexOf(pickerLetter(left)) - PICKER_ALPHABET.indexOf(pickerLetter(right));
+    return letterDelta || pickerSortName(left).localeCompare(pickerSortName(right), "en", { sensitivity: "base" }) || String(left.id || "").localeCompare(String(right.id || ""));
+  });
+}
+
+export function groupPickerCatalogByLetter(exercises) {
+  const groups = [];
+  for (const item of sortPickerExercisesByName(exercises)) {
+    const letter = pickerLetter(item);
+    const current = groups.at(-1);
+    if (!current || current.letter !== letter) groups.push({ letter, exercises: [item] });
+    else current.exercises.push(item);
+  }
+  return groups;
+}
+
+export function pickerLetterTarget(letter, available) {
+  const wanted = PICKER_ALPHABET.includes(letter) ? letter : "#";
+  const present = new Set(available || []);
+  const start = PICKER_ALPHABET.indexOf(wanted);
+  for (let index = start; index < PICKER_ALPHABET.length; index += 1) {
+    if (present.has(PICKER_ALPHABET[index])) return PICKER_ALPHABET[index];
+  }
+  for (let index = start; index >= 0; index -= 1) {
+    if (present.has(PICKER_ALPHABET[index])) return PICKER_ALPHABET[index];
+  }
+  return "";
 }
 
 export function rankPickerExercises(exercises, snapshot, { repeatCatalog = true } = {}) {
@@ -106,7 +140,7 @@ export function rankPickerExercises(exercises, snapshot, { repeatCatalog = true 
     .filter((item) => (counts[canonicalExerciseId(item.id)] || 0) > 0)
     .sort((left, right) => {
       const delta = (counts[canonicalExerciseId(right.id)] || 0) - (counts[canonicalExerciseId(left.id)] || 0);
-      return delta || pickerExerciseName(left).localeCompare(pickerExerciseName(right), "zh", { sensitivity: "base" });
+      return delta || pickerSortName(left).localeCompare(pickerSortName(right), "en", { sensitivity: "base" });
     })
     .map((item) => ({ ...item, pickerPass: "history", historyCount: counts[canonicalExerciseId(item.id)] }));
   const catalog = sortPickerExercisesByName(items).map((item) => ({ ...item, pickerPass: "catalog", historyCount: counts[canonicalExerciseId(item.id)] || 0 }));
