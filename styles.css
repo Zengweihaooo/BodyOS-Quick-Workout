@@ -17,7 +17,7 @@
 .picker-list-shell{position:relative;margin-top:12px}
 .picker-list-shell .card-list{margin-top:0;padding-right:22px}
 .picker-letter-head{position:sticky;top:calc(62px + env(safe-area-inset-top));z-index:5;margin:10px -6px 6px;padding:4px 10px;border-radius:8px;background:#080b10e6;color:var(--mint);font-size:12px;font-weight:900;letter-spacing:.12em;backdrop-filter:blur(12px)}
-.picker-az{position:fixed;top:calc(96px + env(safe-area-inset-top));right:calc((100vw - min(100vw,600px)) / 2 + 2px);bottom:calc(108px + env(safe-area-inset-bottom));z-index:28;display:grid;align-content:space-between;width:22px;padding:6px 0;border-radius:999px;background:#0b121ae6;touch-action:none;user-select:none}
+.picker-az{position:fixed;top:calc(96px + env(safe-area-inset-top));right:calc((100vw - min(100vw,600px)) / 2 + 2px);bottom:calc(108px + env(safe-area-inset-bottom));z-index:28;display:grid;align-content:space-between;width:22px;padding:6px 0;border-radius:999px;background:#0b121ae6;touch-action:none;user-select:none;pointer-events:auto}
 .picker-az button{display:grid;place-items:center;min-height:0;padding:0;border:0;background:transparent;color:#9eb0aa;font-size:10px;font-weight:800;line-height:1}
 .picker-az button.empty{opacity:.28}
 .picker-az button.active{color:var(--mint)}
