@@ -1,4 +1,4 @@
-import { snapshotFromWorkoutUploads } from "./core.js?v=20";
+import { snapshotFromWorkoutUploads } from "./core.js?v=21";
 
 const PROJECT_URL_PATTERN = /^https:\/\/[a-z0-9-]+\.supabase\.co$/i;
 const UPLOADS_SETUP_HINT = "读不到已上传的训练表 public.body_os_workout_uploads。请确认登录账号在 allowlist 中，并已在 Supabase 执行过上传表那一段 SQL。";

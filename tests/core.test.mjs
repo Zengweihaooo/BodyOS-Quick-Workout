@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { EXERCISE_REFERENCES, FALLBACK_EXERCISES, LEGACY_EXERCISE_ID_MAP, adjustRest, applyRecordingMode, buildBodyCandidate, calculateSetVolume, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, exerciseHistorySessionCounts, groupPickerCatalogByLetter, mergeExerciseCatalog, nextSetDraft, pickerLetter, pickerLetterTarget, rankPickerExercises, recordingModeForSet, restRemainingSeconds, sessionSummary, sortPickerExercisesByName, timerElapsedMs, toMarkdown, withoutExercise, aggregateLiftPoints, displayLiftKg, estimated1rmKg, liftChartMarkup, lookbackLiftDeltas, pointsInLiftRange, progressSeriesForExercise, snapshotFromWorkoutUploads, summarizeLiftDay } from "../core.js";
+import { EXERCISE_REFERENCES, formatTrainingDate, normalizeTrainingTimestamp, FALLBACK_EXERCISES, LEGACY_EXERCISE_ID_MAP, adjustRest, applyRecordingMode, buildBodyCandidate, calculateSetVolume, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, exerciseHistorySessionCounts, groupPickerCatalogByLetter, mergeExerciseCatalog, nextSetDraft, pickerLetter, pickerLetterTarget, rankPickerExercises, recordingModeForSet, restRemainingSeconds, sessionSummary, sortPickerExercisesByName, timerElapsedMs, toMarkdown, withoutExercise, aggregateLiftPoints, displayLiftKg, estimated1rmKg, liftChartMarkup, lookbackLiftDeltas, pointsInLiftRange, progressSeriesForExercise, snapshotFromWorkoutUploads, summarizeLiftDay } from "../core.js";
 
 const base = { exerciseId: "press", exerciseName: "哑铃推胸", weightValue: 10, weightUnit: "kg", reps: 12, completedAt: "2026-07-15T21:00:00+08:00", restSeconds: 90 };
 
@@ -330,4 +330,15 @@ test("Pages workout uploads reconstruct a training snapshot for lift history", (
   const series = progressSeriesForExercise(snapshot, "dumbbell_flat_chest_press");
   assert.equal(series.points.length, 1);
   assert.equal(series.points[0].weightKg, 22.5);
+});
+
+test("Body OS space-separated timestamps become iPhone-compatible ISO dates", () => {
+  assert.equal(normalizeTrainingTimestamp("2026-09-13 20:30:00 +0800"), "2026-09-13T20:30:00+08:00");
+  assert.equal(normalizeTrainingTimestamp("2026-09-13T12:30:00.000Z"), "2026-09-13T12:30:00.000Z");
+  const snapshot = snapshotFromWorkoutUploads([{ payload: { session: { id: "date-test", startedAt: "2026-09-13 20:30:00 +0800", sets: [{ exerciseId: "press", weightValue: 10, reps: 8 }] } } }]);
+  assert.equal(snapshot.workoutHistory[0].startedAt, "2026-09-13T20:30:00+08:00");
+  assert.equal(snapshot.exerciseDefaults.press.usedAt, "2026-09-13T20:30:00+08:00");
+  assert.doesNotThrow(() => formatTrainingDate(snapshot.workoutHistory[0].startedAt, { month: "short", day: "numeric" }));
+  assert.equal(formatTrainingDate("invalid"), "日期未知");
+  assert.equal(formatTrainingDate(""), "日期未知");
 });

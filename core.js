@@ -538,6 +538,19 @@ export function createExport(session) {
   return { schemaVersion: SCHEMA_VERSION, exportedAt: new Date().toISOString(), session: { ...session }, bodyOsCandidate: buildBodyCandidate(session) };
 }
 
+export function normalizeTrainingTimestamp(value) {
+  const text = String(value || "").trim()
+    .replace(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})/, "$1T$2")
+    .replace(/\s+([+-]\d{2}:?\d{2})$/, "$1")
+    .replace(/([+-]\d{2})(\d{2})$/, "$1:$2");
+  return text && Number.isFinite(new Date(text).getTime()) ? text : "";
+}
+
+export function formatTrainingDate(value, options = {}, locale = "zh-CN") {
+  const timestamp = normalizeTrainingTimestamp(value);
+  return timestamp ? new Intl.DateTimeFormat(locale, options).format(new Date(timestamp)) : "日期未知";
+}
+
 export function snapshotFromWorkoutUploads(rows = []) {
   const workoutHistory = [];
   for (const row of rows || []) {
@@ -580,8 +593,8 @@ export function snapshotFromWorkoutUploads(rows = []) {
     if (!grouped.size) continue;
     workoutHistory.push({
       id: String(session.id || row.id || ""),
-      startedAt: session.startedAt || row.session_started_at || "",
-      endedAt: session.endedAt || "",
+      startedAt: normalizeTrainingTimestamp(session.startedAt) || normalizeTrainingTimestamp(row.session_started_at),
+      endedAt: normalizeTrainingTimestamp(session.endedAt),
       activityType: "TraditionalStrengthTraining",
       source: "quick_workout_upload",
       exercises: [...grouped.values()],
