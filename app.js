@@ -54,6 +54,11 @@ function elapsed() { return timerElapsedMs(state.session) / 1000; }
 function showToast(message, actionLabel = "", onAction = null) { const node = $("#toast"); node.replaceChildren(); const text = document.createElement("span"); text.textContent = message; node.append(text); if (actionLabel && onAction) { const button = document.createElement("button"); button.type = "button"; button.textContent = actionLabel; button.onclick = async () => { clearTimeout(toastTimer); node.classList.remove("show"); await onAction(); }; node.append(button); } node.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => node.classList.remove("show"), actionLabel ? 30000 : 2600); }
 async function persist() { state.session.updatedAt = new Date().toISOString(); await DB.set("active-session", state.session); status.textContent = navigator.onLine ? "本机已保存" : "离线记录中"; status.style.color = navigator.onLine ? "var(--mint)" : "var(--orange)"; }
 function navigate(screen, data = {}, push = true) { state.screen = screen; Object.assign(state, data); if (push) history.pushState({ screen }, "", `#${screen}`); render(); }
+function navigateBack() {
+  const parent = ({ entry: "picker", custom: "picker", watch: "summary" })[state.screen] || "home";
+  navigate(parent, {}, false);
+  history.replaceState({ screen: parent }, "", `#${parent}`);
+}
 function setScreenHeading(text, canBack = true) { title.textContent = text; backButton.classList.toggle("hidden", !canBack); requestAnimationFrame(() => title.focus({ preventScroll: true })); }
 async function toggleLocale() { state.locale = state.locale === "zh" ? "en" : "zh"; await DB.set("display-locale", state.locale); render(); }
 function exerciseIcon(exercise) { const reduced = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches; const gif = safeExternalUrl(reduced ? exercise.reference?.thumbnailUrl : exercise.reference?.gifUrl, "dataset"); if (gif) return `<img class="exercise-gif" src="${escapeHTML(gif)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">`; const map = { horizontal_push: "↗", vertical_push: "↑", horizontal_pull: "↙", vertical_pull: "↓", squat: "◇", hinge: "⌁", shoulder_abduction: "↔", shoulder_flexion: "⌃", anti_extension: "□", anti_rotation: "↻", anti_lateral_flexion: "◩", trunk_flexion: "⌒", rotation: "⟳", locomotion: "♥" }; return map[exercise.movementPattern] || "✦"; }
@@ -219,6 +224,9 @@ function renderPicker() {
     }
     bindExerciseCards(); bindSessionManagement();
   };
+  bottomBar.innerHTML = `<button class="secondary" id="pickerBack">${localeText("返回训练", "Back to workout")}</button><button class="secondary" id="pickerCloud">${localeText("云端同步", "Cloud sync")}</button>`;
+  $("#pickerBack").onclick = navigateBack;
+  $("#pickerCloud").onclick = () => navigate("cloud");
   search.oninput = update; document.querySelectorAll("[data-filter]").forEach((chip) => chip.onclick = () => { document.querySelectorAll("[data-filter]").forEach((x) => x.classList.remove("active")); chip.classList.add("active"); filter = chip.dataset.filter; activePresetKey = ""; state.pickerPresetKey = ""; update(); }); $("#addCustom").onclick = () => navigate("custom"); list.onclick = (event) => { const button = event.target.closest("[data-exercise]"); if (button) openExercise(button.dataset.exercise); }; update(); if (!activePresetKey) setTimeout(() => search.focus(), 50);
 }
 
@@ -398,8 +406,8 @@ function renderCloud() {
   <section class="section"><div class="section-head"><h2>项目配置</h2><span class="label">保存在此浏览器</span></div><form id="cloudConfigForm" class="cloud-form"><label>Project URL<input id="cloudUrl" type="url" required autocomplete="url" placeholder="https://xxxx.supabase.co" value="${escapeHTML(state.cloud.config?.url || "")}"></label><label>Publishable / anon key<input id="cloudAnonKey" type="password" required autocomplete="off" placeholder="sb_publishable_… 或 anon JWT" value="${escapeHTML(state.cloud.config?.anonKey || "")}"></label><button class="secondary" type="submit">保存项目配置</button></form></section>
   <section class="section"><div class="section-head"><h2>身份验证</h2><span class="label">${escapeHTML(cloudAccountLabel())}</span></div>${signedIn ? `<div class="cloud-signed-in"><p>登录会话保存在此浏览器；原始密码从不保存。</p><div class="cloud-snapshot-state"><strong>${state.training.snapshot ? `已读取 ${state.training.snapshot.workoutHistory?.length || 0} 次历史训练` : "尚未读取 Body.OS 训练快照"}</strong><small>${state.training.error ? escapeHTML(state.training.error) : state.training.snapshot?.generatedAt ? `更新于 ${new Intl.DateTimeFormat("zh-CN",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit",hour12:false}).format(new Date(state.training.snapshot.generatedAt))}` : "本地 Body.OS 启动后会自动发布"}</small><button class="secondary" id="cloudRefresh" type="button">${state.training.busy ? "同步中…" : "立即同步"}</button></div><button class="danger-link" id="cloudSignOut" type="button">退出登录并清除会话</button></div>` : `<form id="cloudLoginForm" class="cloud-form"><label>邮箱<input id="cloudEmail" type="email" required autocomplete="username"></label><label>密码<input id="cloudPassword" type="password" required autocomplete="current-password"></label><button class="primary" type="submit" ${configured ? "" : "disabled"}>登录 Supabase</button></form>`}</section>
   <section class="source-policy"><strong>数据库仍需启用 RLS</strong><span>请先执行仓库 supabase/schema.sql。建议在 Supabase 关闭公开注册，仅在 Dashboard 创建你自己的账号。</span></section>`;
-  bottomBar.innerHTML = `<button class="secondary" id="cloudBack">返回训练总结</button>${signedIn ? `<button class="primary" id="cloudUpload" ${state.cloud.busy ? "disabled" : ""}>${state.cloud.busy ? "上传中…" : "上传本次训练"}</button>` : ""}`;
-  $("#cloudBack").onclick = () => history.back();
+  bottomBar.innerHTML = `<button class="secondary" id="cloudBack">返回训练</button>${signedIn ? `<button class="primary" id="cloudUpload" ${state.cloud.busy ? "disabled" : ""}>${state.cloud.busy ? "上传中…" : "上传本次训练"}</button>` : ""}`;
+  $("#cloudBack").onclick = navigateBack;
   $("#cloudConfigForm").onsubmit = async (event) => { event.preventDefault(); try { state.cloud.config = normalizeSupabaseConfig({ url: $("#cloudUrl").value, anonKey: $("#cloudAnonKey").value }); state.cloud.session = null; await DB.set("supabase-config", state.cloud.config); await DB.set("supabase-session", null); showToast("Supabase 项目配置已保存"); renderCloud(); } catch (error) { showToast(error.message); } };
   if ($("#cloudLoginForm")) $("#cloudLoginForm").onsubmit = async (event) => { event.preventDefault(); state.cloud.busy = true; try { state.cloud.session = await signInWithPassword(state.cloud.config, $("#cloudEmail").value, $("#cloudPassword").value); await DB.set("supabase-session", state.cloud.session); state.cloud.busy = false; showToast("Supabase 登录成功"); await loadTrainingSnapshot(); } catch (error) { state.cloud.busy = false; showToast(error.message || "登录失败"); } };
   $("#cloudRefresh")?.addEventListener("click", () => loadTrainingSnapshot());
@@ -684,7 +692,7 @@ async function copyBodyJson() {
 
 function download(type) { const value = type === "json" ? JSON.stringify(createExport(state.session), null, 2) : toMarkdown(state.session); const blob = new Blob([value], { type: type === "json" ? "application/json;charset=utf-8" : "text/markdown;charset=utf-8" }); const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = `body-os-${state.session.startedAt.slice(0,10)}.${type}`; link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 1000); }
 
-backButton.onclick = () => history.back(); quickFinish.onclick = finishSession; window.addEventListener("popstate", () => { const target = location.hash.slice(1) || "home"; state.screen = target; render(); });
+backButton.onclick = navigateBack; quickFinish.onclick = finishSession; window.addEventListener("popstate", () => { const target = location.hash.slice(1) || "home"; state.screen = target; render(); });
 $("#languageToggle").onclick = toggleLocale;
 window.addEventListener("online", () => { status.textContent = "本机已保存"; if (state.session?.sync.status === "pending") showToast("网络已恢复，可导入 Body.OS"); }); window.addEventListener("offline", () => { status.textContent = "离线记录中"; status.style.color = "var(--orange)"; });
 document.addEventListener("visibilitychange", () => { if (!document.hidden) updateClocks(); });
