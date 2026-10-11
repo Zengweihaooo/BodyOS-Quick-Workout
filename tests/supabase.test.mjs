@@ -26,11 +26,12 @@ test("re-upload clears import markers so Body OS can apply edits", async () => {
   } finally { globalThis.fetch = originalFetch; }
 });
 
-test("training history is read from uploaded workouts, not a snapshot table", async () => {
+test("training history remains uploads-based while optional recommendations are read owner-scoped", async () => {
   const originalFetch = globalThis.fetch;
-  let requestUrl, authorization;
+  let requestUrl, authorization; const urls = [];
   globalThis.fetch = async (url, options) => {
-    requestUrl = url; authorization = options.headers.Authorization;
+    requestUrl = url; urls.push(url); authorization = options.headers.Authorization;
+    if (url.includes("body_os_training_snapshots")) return { ok: true, json: async () => [{ generated_at: "2026-10-11T12:00:00Z", payload: { today: { title: "A", exercises: [] }, workoutHistory: [{id:"must-not-overwrite"}] } }] };
     return {
       ok: true,
       json: async () => [{
@@ -49,8 +50,9 @@ test("training history is read from uploaded workouts, not a snapshot table", as
       { url: "https://abc.supabase.co", anonKey: "a".repeat(24) },
       { access_token: "signed-token", user: { id: "owner-id" } },
     );
-    assert.match(String(requestUrl), /body_os_workout_uploads/);
-    assert.doesNotMatch(String(requestUrl), /body_os_training_snapshots/);
+    assert.match(urls[0], /body_os_workout_uploads/);
+    assert.match(String(requestUrl), /body_os_training_snapshots.*owner_id=eq.owner-id/);
+    assert.equal(snapshot.today.title, "A");
     assert.equal(authorization, "Bearer signed-token");
     assert.equal(snapshot.workoutHistory[0].exercises[0].exerciseId, "dumbbell_flat_chest_press");
   } finally { globalThis.fetch = originalFetch; }
@@ -64,3 +66,21 @@ test("retired project migrates while custom projects remain intact", () => {
   assert.deepEqual(migrateSupabaseConfig(custom, defaults, ["https://old.supabase.co"]), { config: custom, projectChanged: false });
   assert.deepEqual(migrateSupabaseConfig(null, defaults), { config: defaults, projectChanged: false });
 });
+
+for (const failure of ["missing", "empty", "network"]) {
+  test(`optional recommendation ${failure} preserves available history`, async () => {
+    const original = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      if (url.includes("body_os_training_snapshots")) {
+        if (failure === "network") throw new TypeError("offline");
+        return failure === "empty" ? { ok: true, json: async () => [] } : { ok: false, json: async () => ({ message: "PGRST205 body_os_training_snapshots schema cache" }) };
+      }
+      return { ok: true, json: async () => [{ payload: { session: { id: "test-session", startedAt: "2026-10-10T12:00:00Z", sets: [{ exerciseId: "leg_press", reps: 10, weightValue: 20 }] } } }] };
+    };
+    try {
+      const snapshot = await fetchTrainingSnapshot({ url: "https://abc.supabase.co", anonKey: "a".repeat(24) }, { access_token: "token", user: { id: "owner" } });
+      assert.equal(snapshot.workoutHistory.length, 1);
+      assert.ok(snapshot.recommendationNotice);
+    } finally { globalThis.fetch = original; }
+  });
+}

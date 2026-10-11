@@ -348,7 +348,7 @@ export function draftFromExerciseDefault(exercise, cached = null) {
     weightValue: source.weightValue ?? 10,
     weightUnit: source.weightUnit || "kg",
     reps: source.reps ?? 10,
-    rir: source.rir ?? 2,
+    rir: source.rir ?? null,
     rpe: source.rpe ?? null,
     restSeconds: source.restSeconds ?? 120,
     side: unilateral ? "right" : "both",
@@ -879,4 +879,46 @@ export function liftChartMarkup(points, { unit = "kg", grain = "session", large 
     <div class="lift-tooltip" hidden>${liftPointDetailMarkup(points[active], { unit, grain, escapeHTML })}</div>
     </div>
   </div>`;
+}
+
+// History always comes from uploads; owner-scoped projections add prescriptions only.
+export function augmentTrainingSnapshot(history, row) {
+  const projection = row?.payload;
+  if (!projection || typeof projection !== "object" || Array.isArray(projection)) {
+    return { ...history, recommendationNotice: "动态推荐尚未发布，Mac 同步后会自动出现。" };
+  }
+  return {
+    ...history,
+    today: projection.today && typeof projection.today === "object" ? projection.today : {},
+    recommendation: projection.recommendation || {},
+    recommendationGeneratedAt: row.generated_at || projection.generatedAt || "",
+    exerciseDefaults: { ...history.exerciseDefaults, ...(projection.exerciseDefaults || {}) },
+    recommendationNotice: "",
+  };
+}
+
+export function canRefreshTrainingScreen(screen, hasFocusedInput = false) {
+  return !hasFocusedInput && ["home", "recommendation", "history", "cloud"].includes(screen);
+}
+
+export function recommendationFreshness(snapshot, online, nowMs = Date.now()) {
+  const stamp = normalizeTrainingTimestamp(snapshot?.recommendationGeneratedAt || snapshot?.generatedAt);
+  const age = stamp ? nowMs - new Date(stamp).getTime() : Infinity;
+  if (!online) return "当前离线，显示已保存的推荐；联网后会自动更新。";
+  if (age > 24 * 60 * 60 * 1000) return "推荐超过 24 小时未更新，请打开 Mac 同步后再核对。";
+  return "";
+}
+
+export function shouldUploadFinishedSession(workout, online, signedIn) {
+  return Boolean(workout?.endedAt && workout.sets?.length && online && signedIn && (!workout.sync?.supabaseId || workout.sync?.supabaseDirty));
+}
+
+// A failed queue write must not prevent later writes from running.
+export function createSerialTaskQueue() {
+  let tail = Promise.resolve();
+  return (task) => {
+    const result = tail.then(task);
+    tail = result.catch(() => {});
+    return result;
+  };
 }

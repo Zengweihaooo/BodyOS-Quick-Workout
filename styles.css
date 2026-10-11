@@ -90,3 +90,10 @@
 .lift-switch button,.lift-ranges button{min-height:40px;padding:0 10px;border:1px solid var(--line);border-radius:12px;background:var(--surface-2);color:var(--muted)}
 .lift-switch button.active,.lift-ranges button.active{border-color:var(--mint);background:var(--mint-dark);color:var(--mint);font-weight:800}
 .lift-ranges{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin:2px 0}
+
+.recommendation-meta { margin-top: 12px; color: var(--muted); }
+.recommendation-warning { color: var(--orange); }
+.recommendation-exercise h2 { margin-bottom: 12px; }
+.recommendation-exercise p, .recommendation-exercise small { line-height: 1.6; overflow-wrap: anywhere; }
+.recommendation-exercise small { display: block; color: var(--muted); }
+.today-plan li { margin-bottom: 8px; line-height: 1.6; }

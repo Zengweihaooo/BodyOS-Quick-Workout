@@ -1,4 +1,4 @@
-import { snapshotFromWorkoutUploads } from "./core.js?v=21";
+import { snapshotFromWorkoutUploads, augmentTrainingSnapshot } from "./core.js?v=22";
 
 const PROJECT_URL_PATTERN = /^https:\/\/[a-z0-9-]+\.supabase\.co$/i;
 const UPLOADS_SETUP_HINT = "读不到已上传的训练表 public.body_os_workout_uploads。请确认登录账号在 allowlist 中，并已在 Supabase 执行过上传表那一段 SQL。";
@@ -81,7 +81,16 @@ export async function fetchTrainingSnapshot(config, session) {
       `/rest/v1/body_os_workout_uploads?select=payload,session_started_at,id&owner_id=eq.${owner}&order=session_started_at.desc&limit=120`,
       { headers: { Authorization: `Bearer ${session.access_token}` } },
     );
-    return snapshotFromWorkoutUploads(Array.isArray(uploads) ? uploads : []);
+    const history = snapshotFromWorkoutUploads(Array.isArray(uploads) ? uploads : []);
+    // Recommendations are optional; an unavailable projection must not hide history.
+    try {
+      const rows = await request(config,
+        `/rest/v1/body_os_training_snapshots?select=payload,generated_at&owner_id=eq.${owner}&limit=1`,
+        { headers: { Authorization: `Bearer ${session.access_token}` } });
+      return augmentTrainingSnapshot(history, Array.isArray(rows) ? rows[0] : null);
+    } catch {
+      return { ...history, recommendationNotice: "动态推荐暂时无法更新，历史训练仍可查看。" };
+    }
   } catch (error) {
     if (isMissingSupabaseRelation(error, "body_os_workout_uploads")) throw new Error(UPLOADS_SETUP_HINT);
     throw error;

@@ -1,5 +1,5 @@
-import { EXERCISE_CATALOG_VERSION, formatTrainingDate, EXERCISE_REFERENCES, FALLBACK_EXERCISES, LOAD_LABELS, PICKER_ALPHABET, adjustRest, applyRecordingMode, buildBodyCandidate, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createExport, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, groupPickerCatalogByLetter, lookupExerciseDefault, mergeExerciseCatalog, nextSetDraft, normalizeSet, pickerLetterTarget, rankPickerExercises, recordingModeForSet, resolveCatalogExerciseId, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise, aggregateLiftPoints, displayLiftKg, liftChartMarkup, liftPointDetailMarkup, lookbackLiftDeltas, progressSeriesForExercise } from "./core.js?v=21";
-import { fetchTrainingSnapshot, migrateSupabaseConfig, normalizeSupabaseConfig, refreshSession, sessionIsFresh, signInWithPassword, uploadWorkout } from "./supabase.js?v=7";
+import { EXERCISE_CATALOG_VERSION, formatTrainingDate, canRefreshTrainingScreen, recommendationFreshness, shouldUploadFinishedSession, createSerialTaskQueue, EXERCISE_REFERENCES, FALLBACK_EXERCISES, LOAD_LABELS, PICKER_ALPHABET, adjustRest, applyRecordingMode, buildBodyCandidate, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createExport, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, groupPickerCatalogByLetter, lookupExerciseDefault, mergeExerciseCatalog, nextSetDraft, normalizeSet, pickerLetterTarget, rankPickerExercises, recordingModeForSet, resolveCatalogExerciseId, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise, aggregateLiftPoints, displayLiftKg, liftChartMarkup, liftPointDetailMarkup, lookbackLiftDeltas, progressSeriesForExercise } from "./core.js?v=22";
+import { fetchTrainingSnapshot, migrateSupabaseConfig, normalizeSupabaseConfig, refreshSession, sessionIsFresh, signInWithPassword, uploadWorkout } from "./supabase.js?v=8";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const app = $("#app"), bottomBar = $("#bottomBar"), backButton = $("#backButton"), title = $("#screenTitle"), status = $("#networkStatus"), quickFinish = $("#quickFinish");
@@ -16,7 +16,7 @@ const safeExternalUrl = (value, kind) => { try { const url = new URL(String(valu
 const enrichExercise = (item) => ({ ...item, reference: EXERCISE_REFERENCES[canonicalExerciseId(item.id)] || null, catalogVersion: EXERCISE_CATALOG_VERSION });
 const BASE_EXERCISES = FALLBACK_EXERCISES.map(enrichExercise).filter((item, index, items) => items.findIndex((other) => other.id === item.id) === index);
 const TRAINING_PRESETS = [
-  { key: "shoulder_complete", group: "shoulders", title: "今日起肩部计划", titleEn: "Shoulder plan from today", note: "4 + 3 + 4 + 3，共 14 组", noteEn: "4 + 3 + 4 + 3, 14 sets total", ids: ["single_arm_cable_lateral_raise","seated_dumbbell_lateral_raise","machine_reverse_fly","face_pull"], sets: { single_arm_cable_lateral_raise: 4, seated_dumbbell_lateral_raise: 3, machine_reverse_fly: 4, face_pull: 3 } },
+  { key: "shoulder_complete", group: "shoulders", title: "肩部组合模板", titleEn: "Shoulder template", note: "4 + 3 + 4 + 3，共 14 组", noteEn: "4 + 3 + 4 + 3, 14 sets total", ids: ["single_arm_cable_lateral_raise","seated_dumbbell_lateral_raise","machine_reverse_fly","face_pull"], sets: { single_arm_cable_lateral_raise: 4, seated_dumbbell_lateral_raise: 3, machine_reverse_fly: 4, face_pull: 3 } },
   { key: "shoulder_low_trap", group: "shoulders", title: "低斜方参与", note: "中束 · 后束 · 前束 · 肩袖", ids: ["single_arm_cable_lateral_raise","seated_bent_over_reverse_fly","cable_front_raise","cable_external_rotation"] },
   { key: "shoulder_after_chest", group: "shoulders", title: "胸后肩部", note: "避开重复推举", ids: ["single_arm_cable_lateral_raise","seated_bent_over_reverse_fly","cable_external_rotation"] },
   { key: "core_stability", group: "core", title: "核心稳定", note: "抗伸展 · 抗旋转 · 抗侧屈", ids: ["dead_bug","pallof_press","incline_side_plank"] },
@@ -27,8 +27,9 @@ const TRAINING_PRESETS = [
   { key: "back_complete", group: "back", title: "背部完整", note: "垂直拉 · 水平拉 · 肩伸展", ids: ["assisted_close_grip_pull_up","neutral_grip_lat_pulldown","machine_row","straight_arm_pulldown"] },
 ];
 let state = { session: null, exercises: BASE_EXERCISES, screen: "home", draft: null, editingSetIndex: -1, selectedWatch: "", watchCandidates: [], importing: false, resetArmed: false, locale: "zh", pickerPresetKey: "", historyWorkoutId: "", historyMode: "workouts", historyExerciseId: "", liftUnit: "kg", liftGrain: "session", liftScrubIndex: -1, liftSheetOpen: false, training: { snapshot: null, busy: false, error: "" }, cloud: { config: null, session: null, busy: false } };
-let tickTimer = null, toastTimer = null, resetArmTimer = null, trainingSnapshotTask = null;
-const SNAPSHOT_SCREENS = ["home", "cloud", "history", "entry", "picker", "summary"];
+let tickTimer = null, toastTimer = null, resetArmTimer = null, trainingSnapshotTask = null, automaticUploadTask = null;
+const serializePendingQueueWrite = createSerialTaskQueue();
+const SNAPSHOT_SCREENS = ["home", "cloud", "history", "recommendation", "entry", "picker", "summary"];
 const canDirectBodyOs = location.pathname.startsWith("/quick-workout/") && !location.hostname.endsWith("github.io") && location.protocol !== "file:";
 
 const DB = {
@@ -138,19 +139,51 @@ function sessionOverviewMarkup(activeId) {
 
 function render() {
   clearInterval(tickTimer); app.innerHTML = ""; bottomBar.innerHTML = "";
-  if (state.screen === "picker") renderPicker(); else if (state.screen === "custom") renderCustomExercise(); else if (state.screen === "entry") renderEntry(); else if (state.screen === "summary") renderSummary(); else if (state.screen === "watch") renderWatch(); else if (state.screen === "cloud") renderCloud(); else if (state.screen === "history") renderHistory(); else renderHome();
+  if (state.screen === "picker") renderPicker(); else if (state.screen === "custom") renderCustomExercise(); else if (state.screen === "entry") renderEntry(); else if (state.screen === "summary") renderSummary(); else if (state.screen === "watch") renderWatch(); else if (state.screen === "cloud") renderCloud(); else if (state.screen === "history") renderHistory(); else if (state.screen === "recommendation") renderRecommendation(); else renderHome();
   const activeTrainingScreen = ["home", "picker", "custom", "entry"].includes(state.screen);
   quickFinish.classList.toggle("hidden", !activeTrainingScreen || !state.session.sets.length);
   tickTimer = setInterval(updateClocks, 1000); updateClocks();
 }
 
+
+function recommendationMetaMarkup() {
+  const snapshot = state.training.snapshot, stamp = snapshot?.recommendationGeneratedAt || snapshot?.generatedAt;
+  const notice = recommendationFreshness(snapshot, navigator.onLine);
+  return `<div class="recommendation-meta"><small>${stamp ? `生成于 ${formatTrainingDate(stamp, { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}` : "等待 Mac 发布动态推荐"}</small>${notice ? `<p class="recommendation-warning">${escapeHTML(notice)}</p>` : ""}${state.training.error ? `<p class="recommendation-warning">${escapeHTML(state.training.error)}</p>` : ""}</div>`;
+}
+
+function recommendationListMarkup(values) {
+  const items = Array.isArray(values) ? values : values ? [values] : [];
+  return items.length ? `<ul>${items.map((item) => `<li>${escapeHTML(typeof item === "string" ? ({ wearable_metrics_are_context_not_training_clearance: "睡眠、心率和 HRV 只作参考，不能单独决定训练强度。", nutrition_not_used_without_logged_intake: "尚未记录的饮食不会按零摄入处理。", current_pain_and_fatigue_require_self_report: "训练前仍需根据当前疼痛和疲劳调整。" })[item] || item : item.message || item.reason || item.label || "")}</li>`).join("")}</ul>` : "";
+}
+
+function renderRecommendation() {
+  setScreenHeading("渐进训练建议");
+  const snapshot = state.training.snapshot || {}, today = snapshot.today || {}, recommendation = snapshot.recommendation || {};
+  const exercises = Array.isArray(today.exercises) ? today.exercises : [];
+  app.innerHTML = `<section class="today-plan"><div class="section-head"><div><span class="label">${escapeHTML(today.readinessLabel || "基于已同步训练")}</span><h2>${escapeHTML(today.title || "等待下次训练建议")}</h2></div><button id="refreshRecommendation" ${state.training.busy ? "disabled" : ""}>${state.training.busy ? "更新中…" : "刷新"}</button></div>${recommendationMetaMarkup()}${recommendation.stage ? `<p>当前阶段：${escapeHTML(({ return_week_1: "第一周适应", return_week_2: "第二周适应", building: "逐步建立训练量", awaiting_configuration: "等待训练配置" })[recommendation.stage] || (typeof recommendation.stage === "string" ? recommendation.stage : recommendation.stage.label || ""))}</p>` : ""}${snapshot.recommendationNotice ? `<p>${escapeHTML(snapshot.recommendationNotice)}</p>` : ""}${recommendationListMarkup(today.reasoning)}${recommendationListMarkup(recommendation.reasons)}${recommendation.completedSessions != null ? `<small>已完成 ${escapeHTML(recommendation.completedSessions)} 次本阶段训练 · 计划每周 ${escapeHTML(recommendation.sessionsPerWeek || 3)} 次</small>` : ""}${recommendation.due?.nextAt ? `<p>下一次安排参考：${formatTrainingDate(recommendation.due.nextAt, { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</p>` : ""}</section>
+    ${exercises.map((item) => {
+      const previous = lookupExerciseDefault(snapshot.exerciseDefaults, item.exerciseId);
+      const last = item.lastParameters?.sets?.at(-1);
+      const previousText = last ? `上次 ${formatTrainingDate(item.lastParameters.usedAt, { month: "numeric", day: "numeric" })} · ${last.weight_value}${last.weight_unit || "kg"} × ${last.reps} 次（最后一组）` : previous ? `上次 ${formatTrainingDate(previous.usedAt, { month: "numeric", day: "numeric" })} · ${previous.weightValue}${previous.weightUnit || "kg"} × ${previous.reps} 次（最近最大组，仅作参考）` : "尚无该动作记录，从轻重量熟悉动作开始。";
+      const weight = item.targetWeightKg ?? item.targetWeight;
+      const weightText = weight != null ? typeof weight === "object" ? `${weight.value ?? weight.weightValue ?? ""}${weight.unit || weight.weightUnit || "kg"}` : `${weight}${item.targetWeightUnit || item.weightUnit || "kg"}` : "先选能稳定完成的重量";
+      return `<section class="section recommendation-exercise"><h2>${escapeHTML(item.name || item.exerciseId)}</h2><strong>${escapeHTML(item.sets ?? "—")} 组 · ${escapeHTML(item.minReps ?? "—")}–${escapeHTML(item.maxReps ?? "—")} 次${item.targetRir != null ? ` · 保留 ${escapeHTML(Array.isArray(item.targetRir) ? item.targetRir.join("–") : item.targetRir)} 次余力` : ""}</strong><p>建议重量：${escapeHTML(weightText)}${item.targetLoadMode ? ` · ${escapeHTML(LOAD_LABELS[item.targetLoadMode] || item.targetLoadMode)}` : ""}${item.targetExecutionMode === "unilateral" ? " · 单侧" : ""}</p><small>${escapeHTML(previousText)}</small>${item.restSeconds ? `<small>组间休息 ${escapeHTML(item.restSeconds)} 秒</small>` : ""}${item.progressionRule || item.progression ? `<p>${escapeHTML(item.progressionRule || item.progression)}</p>` : ""}${recommendationListMarkup(item.reason || item.reasons || item.reasoning)}</section>`;
+    }).join("")}
+    <section class="section"><h2>如何渐进</h2><p>所有工作组达到次数上限、动作稳定且仍保留目标余力，连续两次后才增加最小可用重量。不要同时加重量和加组；若恢复或表现变差，保持或减少本次剂量。</p>${recommendationListMarkup(recommendation.progressionRules)}${(recommendation.recoveryInputGaps || recommendation.inputGaps)?.length ? `<h3>仍待补充的数据</h3>${recommendationListMarkup(recommendation.recoveryInputGaps || recommendation.inputGaps)}` : ""}</section>`;
+  bottomBar.innerHTML = `<button class="secondary" id="recommendationHome">返回训练</button><button class="primary" id="useRecommendation" ${exercises.length ? "" : "disabled"}>选择推荐动作</button>`;
+  $("#recommendationHome").onclick = () => navigate("home");
+  $("#useRecommendation").onclick = () => navigate("picker", { pickerPresetKey: "bodyos_today" });
+  $("#refreshRecommendation").onclick = () => loadTrainingSnapshot();
+}
+
 function renderHome() {
   setScreenHeading("训练中", false); const summary = sessionSummary(state.session); const recentIds = [...new Set(state.session.sets.map((s) => s.exerciseId))].reverse(); const hasSessionData = summary.setCount > 0 || timerElapsedMs(state.session) > 0; const today = state.training.snapshot?.today; const historyCount = state.training.snapshot?.workoutHistory?.length || 0;
   app.innerHTML = `<section class="hero"><div class="hero-row"><div><div class="label">训练计时 · ${state.session.timer.running ? "进行中" : "已暂停"}</div><div class="timer" data-elapsed>${formatClock(elapsed())}</div></div><button class="timer-toggle ${state.session.timer.running ? "running" : ""}" id="sessionTimerToggle">${state.session.timer.running ? "Ⅱ 暂停" : "▶ 开始"}</button></div><div class="metrics"><div class="metric"><span class="label">动作</span><strong>${summary.exerciseCount}</strong></div><div class="metric"><span class="label">组数</span><strong>${summary.setCount}</strong></div><div class="metric"><span class="label">训练量</span><strong>${summary.volume}</strong><small>kg</small></div></div></section>
-  ${today?.exercises?.length ? `<section class="today-plan"><div class="section-head"><div><span class="label">BODY.OS 今日推荐 · ${escapeHTML(today.readinessLabel || "已同步")}</span><h2>${escapeHTML(today.title || "今日训练计划")}</h2></div><button id="openTodayPlan">查看计划</button></div><div class="today-plan-list">${today.exercises.slice(0, 5).map((item) => `<span><strong>${escapeHTML(item.name || item.exerciseId)}</strong><small>${item.sets || "—"} 组${item.minReps || item.maxReps ? ` · ${item.minReps || "?"}–${item.maxReps || "?"} 次` : ""}</small></span>`).join("")}</div>${today.reasoning?.[0] ? `<p>${escapeHTML(today.reasoning[0])}</p>` : ""}</section>` : `<section class="sync-nudge"><strong>${state.training.busy ? "正在同步训练数据…" : historyCount ? "训练数据已连接" : "连接 Body.OS 训练数据"}</strong><span>${state.training.error ? escapeHTML(state.training.error) : historyCount ? `已同步 ${historyCount} 次历史训练；选择动作时会带入最近参数。` : "登录后可同步训练历史和最近参数。"}</span><button id="openCloud">${historyCount ? "同步" : "连接"}</button></section>`}
+  ${today?.exercises?.length ? `<section class="today-plan"><div class="section-head"><div><span class="label">BODY.OS 下次训练 · ${escapeHTML(today.readinessLabel || "已同步")}</span><h2>${escapeHTML(today.title || "下次训练建议")}</h2></div><button id="openTodayPlan">查看建议</button></div><div class="today-plan-list">${today.exercises.map((item) => `<span><strong>${escapeHTML(item.name || item.exerciseId)}</strong><small>${item.sets || "—"} 组${item.minReps || item.maxReps ? ` · ${item.minReps || "?"}–${item.maxReps || "?"} 次` : ""}</small></span>`).join("")}</div>${recommendationMetaMarkup()}${today.reasoning?.[0] ? `<p>${escapeHTML(today.reasoning[0])}</p>` : ""}</section>` : `<section class="sync-nudge"><strong>${state.training.busy ? "正在同步训练数据…" : historyCount ? "训练数据已连接" : "连接 Body.OS 训练数据"}</strong><span>${state.training.error ? escapeHTML(state.training.error) : historyCount ? `已同步 ${historyCount} 次历史训练；选择动作时会带入最近参数。` : "登录后可同步训练历史和最近参数。"}</span><button id="openCloud">${historyCount ? "同步" : "连接"}</button></section>`}
   <section class="section"><div class="section-head"><h2>${recentIds.length ? "继续记录" : "准备开始"}</h2><div class="section-actions"><button id="browseAll">动作库</button>${hasSessionData ? `<button class="danger-link ${state.resetArmed ? "armed" : ""}" id="resetSession">${state.resetArmed ? "确认重置" : "重置"}</button>` : ""}</div></div><div class="card-list">${recentIds.length ? recentIds.slice(0, 4).map((id) => exerciseCard(state.exercises.find((x) => x.id === id) || fromSet(id))).join("") : `<div class="empty">选择第一个标准动作。之后每组可一键复用上一组数据。</div>`}</div></section>`;
   bottomBar.innerHTML = `<button class="secondary" id="history">${historyCount ? `历史 ${historyCount}` : "训练历史"}</button><button class="secondary" id="finish" ${summary.setCount ? "" : "disabled"}>结束训练</button><button class="primary" id="choose">＋ 选择动作</button>`;
-  $("#sessionTimerToggle").onclick = toggleSessionTimer; $("#choose").onclick = $("#browseAll").onclick = () => navigate("picker", { pickerPresetKey: "" }); $("#finish").onclick = finishSession; $("#history").onclick = () => state.training.snapshot ? navigate("history") : navigate("cloud"); $("#openTodayPlan")?.addEventListener("click", () => navigate("picker", { pickerPresetKey: "bodyos_today" })); $("#openCloud")?.addEventListener("click", () => navigate("cloud")); bindExerciseCards(); bindSessionManagement();
+  $("#sessionTimerToggle").onclick = toggleSessionTimer; $("#choose").onclick = $("#browseAll").onclick = () => navigate("picker", { pickerPresetKey: "" }); $("#finish").onclick = finishSession; $("#history").onclick = () => state.training.snapshot ? navigate("history") : navigate("cloud"); $("#openTodayPlan")?.addEventListener("click", () => navigate("recommendation")); $("#openCloud")?.addEventListener("click", () => navigate("cloud")); bindExerciseCards(); bindSessionManagement();
 }
 
 function fromSet(id) { const set = state.session.sets.find((x) => x.exerciseId === id); return { ...set, id, name: set.exerciseName }; }
@@ -195,12 +228,12 @@ function renderPicker() {
   app.innerHTML = `<div class="picker-actions"><input class="search" id="search" type="search" placeholder="${localeText("搜索动作、器械或英文名", "Search exercise, equipment or Chinese name")}" autocomplete="off" aria-label="搜索动作"><button class="custom-action" id="addCustom">＋ ${localeText("自定义", "Custom")}</button></div><section class="category-guide"><div class="section-head"><h2>${localeText("按部位或完整组合选择", "Browse by body part or preset")}</h2><span class="label">${localeText("休息日自由安排", "Flexible rest days")}</span></div><div class="chip-row"><button class="chip active" data-filter="">${localeText("全部", "All")}</button><button class="chip" data-filter="chest">${localeText("胸", "Chest")}</button><button class="chip" data-filter="back">${localeText("背", "Back")}</button><button class="chip" data-filter="shoulders">${localeText("肩", "Shoulders")}</button><button class="chip" data-filter="core">${localeText("核心", "Core")}</button><button class="chip" data-filter="cardio">${localeText("有氧", "Cardio")}</button><button class="chip" data-filter="arms">${localeText("手臂", "Arms")}</button><button class="chip" data-filter="legs">${localeText("腿", "Legs")}</button></div></section><section class="preset-guide" id="presetGuide"></section><div class="picker-list-shell"><div class="card-list" id="exerciseList"></div><nav class="picker-az hidden" id="pickerAz" aria-label="${localeText("字母索引", "A to Z index")}"></nav><div class="picker-az-hud hidden" id="pickerAzHud" aria-hidden="true"></div></div><aside class="source-policy"><strong>${localeText("来源与隐私", "Sources & privacy")}</strong><span>${localeText("动图仅远程引用 exercise dataset；动作详情仅显示 wger 内容。训练数据保存在此浏览器的 IndexedDB，不会自动上传。", "Animations are remote exercise-dataset references; guides come only from wger. Workout data stays in this browser's IndexedDB unless you export it.")}</span></aside>`;
     const list = $("#exerciseList"), search = $("#search"), guide = $("#presetGuide"), az = $("#pickerAz"), hud = $("#pickerAzHud");
   const today = state.training.snapshot?.today;
-  const remotePreset = today?.exercises?.length ? { key: "bodyos_today", group: "", title: today.title || "Body.OS 今日推荐", titleEn: "Body.OS plan for today", note: `${today.exercises.reduce((sum, item) => sum + Number(item.sets || 0), 0)} 组 · ${today.readinessLabel || "已同步"}`, ids: today.exercises.map((item) => canonicalExerciseId(item.exerciseId)), sets: Object.fromEntries(today.exercises.map((item) => [canonicalExerciseId(item.exerciseId), Number(item.sets || 0)])) } : null;
+  const remotePreset = today?.exercises?.length ? { key: "bodyos_today", group: "", title: today.title || "Body.OS 下次训练", titleEn: today.title || "Body.OS next workout", note: `${today.exercises.reduce((sum, item) => sum + Number(item.sets || 0), 0)} 组 · ${today.readinessLabel || "已同步"}`, ids: today.exercises.map((item) => canonicalExerciseId(item.exerciseId)), sets: Object.fromEntries(today.exercises.map((item) => [canonicalExerciseId(item.exerciseId), Number(item.sets || 0)])) } : null;
   const presets = remotePreset ? [remotePreset, ...TRAINING_PRESETS] : TRAINING_PRESETS;
   let filter = "", activePresetKey = state.pickerPresetKey || "";
   const update = () => {
     const relevant = presets.filter((preset) => preset.key === "bodyos_today" || !filter || preset.group === filter);
-    guide.innerHTML = relevant.length ? `<div class="section-head"><h2>${localeText("推荐完整组合", "Recommended presets")}</h2><span class="label">${localeText("点击后只看该组合动作", "Tap to filter the preset")}</span></div><div class="preset-row">${relevant.map((preset) => `<button class="preset-card ${activePresetKey === preset.key ? "active" : ""}" data-preset="${preset.key}"><strong>${localeText(preset.title, preset.titleEn || preset.title)}</strong><small>${localeText(preset.note, preset.noteEn || preset.note)}</small><em>${preset.ids.length} ${localeText("个动作", "exercises")}</em></button>`).join("")}</div>` : "";
+    guide.innerHTML = relevant.length ? `<div class="section-head"><h2>${localeText("动态推荐与通用模板", "Recommendations & templates")}</h2><span class="label">${localeText("点击后只看该组合动作", "Tap to filter the preset")}</span></div><div class="preset-row">${relevant.map((preset) => `<button class="preset-card ${activePresetKey === preset.key ? "active" : ""}" data-preset="${preset.key}"><strong>${localeText(preset.title, preset.titleEn || preset.title)}</strong><small>${localeText(preset.note, preset.noteEn || preset.note)}</small><em>${preset.ids.length} ${localeText("个动作", "exercises")}</em></button>`).join("")}</div>` : "";
     guide.querySelectorAll("[data-preset]").forEach((button) => button.onclick = () => { const preset = presets.find((item) => item.key === button.dataset.preset); activePresetKey = activePresetKey === preset?.key ? "" : (preset?.key || ""); state.pickerPresetKey = activePresetKey; if (preset?.group) { filter = preset.group; document.querySelectorAll("[data-filter]").forEach((chip) => chip.classList.toggle("active", chip.dataset.filter === filter)); } update(); });
     const preset = presets.find((item) => item.key === activePresetKey), allowedIds = preset ? new Set(preset.ids) : null;
     const term = search.value.trim().toLowerCase(), words = term.split(/\s+/).filter(Boolean);
@@ -243,6 +276,10 @@ function renderCustomExercise() {
 }
 
 function openExercise(id) {
+  if (state.pickerPresetKey === "bodyos_today" && (state.training.snapshot?.recommendation?.rotationKey || state.training.snapshot?.recommendation?.key)) {
+    state.session.recommendationKey = state.training.snapshot.today?.key || state.training.snapshot.recommendation.key || state.training.snapshot.recommendation.rotationKey;
+    persist();
+  }
   const exercise = state.exercises.find((x) => x.id === id) || fromSet(id); const previous = [...state.session.sets].reverse().find((x) => x.exerciseId === id);
   const grip = inferredGrip(exercise);
   const cached = lookupExerciseDefault(state.training.snapshot?.exerciseDefaults, id);
@@ -275,7 +312,7 @@ function renderEntry() {
   setScreenHeading(editing ? localeText("编辑历史组", "Edit saved set") : (state.locale === "en" ? (d.canonicalNameEn || d.exerciseName) : d.exerciseName)); app.innerHTML = `${editing ? `<section class="section edit-exercise-field"><div class="field"><label for="editExercise">${localeText("修改动作", "Change exercise")}</label><select id="editExercise">${state.exercises.map((exercise) => `<option value="${escapeHTML(exercise.id)}" ${exercise.id === d.exerciseId ? "selected" : ""}>${escapeHTML(state.locale === "en" ? (exercise.canonicalNameEn || exercise.name) : exercise.name)}</option>`).join("")}</select></div></section>` : ""}<section class="hero"><div class="entry-title"><span class="exercise-icon">${exerciseIcon(d)}</span><div><div class="label">${editing ? localeText("正在修改已保存记录", "Editing saved record") : localeText(`第 ${count + 1} 组`, `Set ${count + 1}`)}</div>${exerciseLabel(d)}<div class="muted">${escapeHTML(d.equipment || localeText("标准动作", "Standard"))}</div></div></div><div class="semantic"><span>${localeText("本组记录方式", "Set recording mode")}</span><select id="recordingMode" aria-label="本组记录方式">${Object.entries(RECORDING_MODE_LABELS).map(([value,label]) => `<option value="${value}" ${recordingMode === value ? "selected" : ""}>${label}</option>`).join("")}</select></div></section>${referencePanel}
   <div class="session-timer-strip"><span><small>训练计时</small><strong data-elapsed>${formatClock(elapsed())}</strong></span><button id="entryTimerToggle">${state.session.timer.running ? "暂停" : "开始"}</button></div>
   ${restMarkup()}
-  ${last ? `<div class="last-set">${localeText("上一组", "Previous set")}：${last.weightValue}${last.weightUnit} × ${last.reps} ${localeText("次", "reps")}${last.rir != null ? ` · RIR ${last.rir}` : ""}</div>` : cached ? `<div class="last-set cached-default"><strong>已带入最近训练参数</strong><span>${formatTrainingDate(cached.usedAt, {month:"numeric",day:"numeric"})} · ${cached.setCount} 组 · 最近最大 ${cached.weightValue}${cached.weightUnit} × ${cached.reps}</span></div>` : ""}${prescription ? `<div class="prescription-note">今日计划：${prescription.sets || "—"} 组${prescription.minReps || prescription.maxReps ? ` · ${prescription.minReps || "?"}–${prescription.maxReps || "?"} 次` : ""}${prescription.targetRpe ? ` · RPE ${prescription.targetRpe}` : ""}</div>` : ""}${liftProgressPanel(d.exerciseId)}${setPreviewMarkup(count, last)}
+  ${last ? `<div class="last-set">${localeText("上一组", "Previous set")}：${last.weightValue}${last.weightUnit} × ${last.reps} ${localeText("次", "reps")}${last.rir != null ? ` · RIR ${last.rir}` : ""}</div>` : cached ? `<div class="last-set cached-default"><strong>已带入最近训练参数</strong><span>${formatTrainingDate(cached.usedAt, {month:"numeric",day:"numeric"})} · ${cached.setCount} 组 · 最近最大 ${cached.weightValue}${cached.weightUnit} × ${cached.reps}</span></div>` : ""}${prescription ? `<div class="prescription-note">下次建议：${prescription.sets || "—"} 组${prescription.minReps || prescription.maxReps ? ` · ${prescription.minReps || "?"}–${prescription.maxReps || "?"} 次` : ""}${prescription.targetRir != null ? ` · 保留 ${escapeHTML(Array.isArray(prescription.targetRir) ? prescription.targetRir.join("–") : prescription.targetRir)} 次余力` : prescription.targetRpe ? ` · RPE ${prescription.targetRpe}` : ""}</div>` : ""}${liftProgressPanel(d.exerciseId)}${setPreviewMarkup(count, last)}
   <div class="step-grid"><div class="stepper"><div class="row"><div class="label">${RECORDING_MODE_LABELS[recordingMode]}</div><div class="unit-switch" aria-label="重量单位"><button class="${unit === "kg" ? "active" : ""}" data-unit="kg">kg</button><button class="${unit === "lb" ? "active" : ""}" data-unit="lb">lb <small>磅</small></button></div></div><div class="stepper-controls"><button data-step="weight" data-delta="-${step}" aria-label="减少重量">−</button><input id="weight" class="number-input" type="number" inputmode="decimal" min="0" step="${step}" value="${d.weightValue}" aria-label="重量，点击数字可直接输入"><button data-step="weight" data-delta="${step}" aria-label="增加重量">＋</button></div><div class="direct-input-hint">点击数字可直接输入 · ${unit === "lb" ? "当前单位：磅" : "可切换 lb（磅）"}${d.sideCount === 2 && ["per_limb","per_side"].includes(d.loadMode) ? ` · 总负荷 ${d.weightValue * 2} ${unit}` : ""}</div></div><div class="stepper"><div class="label">次数</div><div class="stepper-controls"><button data-step="reps" data-delta="-1" aria-label="减少次数">−</button><input id="reps" class="number-input" type="number" inputmode="numeric" min="0" step="1" value="${d.reps}" aria-label="次数，点击数字可直接输入"><button data-step="reps" data-delta="1" aria-label="增加次数">＋</button></div><div class="direct-input-hint">点击数字可直接输入</div></div></div>
   <section class="section"><div class="section-head"><h2>RIR</h2><span class="label">还能完成几次</span></div><div class="rir-grid">${[null,0,1,2,3,4,5].map((v) => `<button class="chip ${d.rir === v ? "active" : ""}" data-rir="${v == null ? "" : v}">${v == null ? "未记" : v}</button>`).join("")}</div></section>
   ${gripMarkup(d)}
@@ -333,7 +370,8 @@ function updateClocks() {
   document.querySelectorAll("[data-rest]").forEach((node) => { const seconds = restRemainingSeconds(state.session.rest); node.textContent = formatClock(seconds); if (!seconds && state.session.rest?.running) { state.session.rest = null; navigator.vibrate?.([120,80,120]); persist(); showToast("休息结束，可以开始下一组"); render(); } });
 }
 
-async function finishSession() { if (state.session.timer.running) { state.session.timer.elapsedMs = timerElapsedMs(state.session); state.session.timer.running = false; state.session.timer.startedAtMs = null; } state.session.endedAt = new Date().toISOString(); state.session.rest = null; await persist(); await loadWatchCandidates(); navigate("summary"); }
+async function finishSession() { if (state.session.timer.running) { state.session.timer.elapsedMs = timerElapsedMs(state.session); state.session.timer.running = false; state.session.timer.startedAtMs = null; } state.session.endedAt = new Date().toISOString(); state.session.rest = null; await persist(); await queueFinishedSession(); await loadWatchCandidates(); navigate("summary"); if (!state.cloud.session && state.session.sets.length) showToast("训练已保存，登录云端后可自动上传");
+  uploadFinishedSessionAutomatically(); }
 async function loadWatchCandidates() { try { const params = new URLSearchParams({ started_at: state.session.startedAt, ended_at: state.session.endedAt || new Date().toISOString() }); const response = await fetch(`/api/workout-capture/match-candidates?${params}`); if (!response.ok) throw new Error(); const data = await response.json(); state.watchCandidates = data.candidates || []; const selected = decisiveWatchCandidate(state.watchCandidates); state.selectedWatch = selected?.workoutId || ""; } catch { state.watchCandidates = []; state.selectedWatch = ""; } }
 
 function cloudAccountLabel() {
@@ -372,7 +410,7 @@ async function loadTrainingSnapshot({ quiet = false } = {}) {
       state.training.error = error.message || "训练数据同步失败";
     }
     state.training.busy = false;
-    if (!quiet && SNAPSHOT_SCREENS.includes(state.screen)) render();
+    if (canRefreshTrainingScreen(state.screen, Boolean(document.activeElement?.matches("input,textarea,select")))) render();
     return state.training.snapshot;
   })();
   try { return await trainingSnapshotTask; }
@@ -382,21 +420,32 @@ async function loadTrainingSnapshot({ quiet = false } = {}) {
 function refreshTrainingSnapshotForExercise() {
   if (!navigator.onLine) return;
   if (!(canDirectBodyOs || (state.cloud.config && state.cloud.session))) return;
-  loadTrainingSnapshot();
+  loadTrainingSnapshot({ quiet: true });
 }
 
 async function syncCurrentWorkoutToCloud() {
+  if (automaticUploadTask) return automaticUploadTask;
+  if (state.cloud.busy) return;
   if (!navigator.onLine) return showToast("当前离线，训练仍安全保存在本机");
   if (!state.cloud.config || !state.cloud.session) return navigate("cloud");
-  state.cloud.busy = true; renderSummary();
+  const workout = structuredClone(state.session);
+  state.cloud.busy = true; if (state.screen === "summary") renderSummary();
   try {
     const session = await ensureCloudSession();
-    const rows = await uploadWorkout(state.cloud.config, session, createExport(state.session));
+    const rows = await uploadWorkout(state.cloud.config, session, createExport(workout));
     const remote = Array.isArray(rows) ? rows[0] : rows;
-    state.session.sync = { ...state.session.sync, supabaseId: remote?.id || state.session.sync.supabaseId || "uploaded", supabaseUploadedAt: new Date().toISOString(), supabaseDirty: false };
-    await persist(); showToast("已安全上传到 Supabase，Body.OS 将自动读取");
+    let changedDuringUpload = false;
+    if (state.session.id === workout.id) {
+      changedDuringUpload = JSON.stringify(state.session.sets) !== JSON.stringify(workout.sets);
+      state.session.sync = { ...state.session.sync, supabaseId: remote?.id || workout.sync?.supabaseId || "uploaded", supabaseUploadedAt: new Date().toISOString(), supabaseDirty: changedDuringUpload };
+      await persist();
+    }
+    if (changedDuringUpload) await queueFinishedSession();
+    else await removePendingWorkout(workout.id);
+    showToast(changedDuringUpload ? "已上传之前的训练版本，新修改仍待同步" : "已安全上传到 Supabase，Body.OS 将自动读取");
+    await loadTrainingSnapshot({ quiet: true });
   } catch (error) { showToast(error.message || "Supabase 上传失败"); }
-  state.cloud.busy = false; renderSummary();
+  state.cloud.busy = false; if (state.screen === "summary") renderSummary();
 }
 
 function renderCloud() {
@@ -409,7 +458,7 @@ function renderCloud() {
   bottomBar.innerHTML = `<button class="secondary" id="cloudBack">返回训练</button>${signedIn ? `<button class="primary" id="cloudUpload" ${state.cloud.busy ? "disabled" : ""}>${state.cloud.busy ? "上传中…" : "上传本次训练"}</button>` : ""}`;
   $("#cloudBack").onclick = navigateBack;
   $("#cloudConfigForm").onsubmit = async (event) => { event.preventDefault(); try { state.cloud.config = normalizeSupabaseConfig({ url: $("#cloudUrl").value, anonKey: $("#cloudAnonKey").value }); state.cloud.session = null; await DB.set("supabase-config", state.cloud.config); await DB.set("supabase-session", null); showToast("Supabase 项目配置已保存"); renderCloud(); } catch (error) { showToast(error.message); } };
-  if ($("#cloudLoginForm")) $("#cloudLoginForm").onsubmit = async (event) => { event.preventDefault(); state.cloud.busy = true; try { state.cloud.session = await signInWithPassword(state.cloud.config, $("#cloudEmail").value, $("#cloudPassword").value); await DB.set("supabase-session", state.cloud.session); state.cloud.busy = false; showToast("Supabase 登录成功"); await loadTrainingSnapshot(); } catch (error) { state.cloud.busy = false; showToast(error.message || "登录失败"); } };
+  if ($("#cloudLoginForm")) $("#cloudLoginForm").onsubmit = async (event) => { event.preventDefault(); state.cloud.busy = true; try { state.cloud.session = await signInWithPassword(state.cloud.config, $("#cloudEmail").value, $("#cloudPassword").value); await DB.set("supabase-session", state.cloud.session); state.cloud.busy = false; showToast("Supabase 登录成功"); await loadTrainingSnapshot(); uploadFinishedSessionAutomatically(); } catch (error) { state.cloud.busy = false; showToast(error.message || "登录失败"); } };
   $("#cloudRefresh")?.addEventListener("click", () => loadTrainingSnapshot());
   $("#cloudSignOut")?.addEventListener("click", async () => { state.cloud.session = null; state.training.snapshot = null; await DB.set("supabase-session", null); await DB.set("training-snapshot", null); showToast("本机登录会话与训练快照已清除"); renderCloud(); });
   $("#cloudUpload")?.addEventListener("click", syncCurrentWorkoutToCloud);
@@ -695,7 +744,70 @@ function download(type) { const value = type === "json" ? JSON.stringify(createE
 backButton.onclick = navigateBack; quickFinish.onclick = finishSession; window.addEventListener("popstate", () => { const target = location.hash.slice(1) || "home"; state.screen = target; render(); });
 $("#languageToggle").onclick = toggleLocale;
 window.addEventListener("online", () => { status.textContent = "本机已保存"; if (state.session?.sync.status === "pending") showToast("网络已恢复，可导入 Body.OS"); }); window.addEventListener("offline", () => { status.textContent = "离线记录中"; status.style.color = "var(--orange)"; });
-document.addEventListener("visibilitychange", () => { if (!document.hidden) updateClocks(); });
+async function queueFinishedSession() {
+  const workout = state.session;
+  if (!shouldUploadFinishedSession(workout, true, true)) return;
+  // Capture before awaiting the queue lock so a new active session cannot replace it.
+  const queued = { ...structuredClone(workout), cloudOwnerId: state.cloud.session?.user?.id || "", cloudProjectUrl: state.cloud.config?.url || "" };
+  await serializePendingQueueWrite(async () => {
+    const pending = (await DB.get("pending-cloud-workouts")) || {};
+    pending[queued.id] = queued;
+    await DB.set("pending-cloud-workouts", pending);
+  });
+}
+
+async function removePendingWorkout(id) {
+  await serializePendingQueueWrite(async () => {
+    const pending = (await DB.get("pending-cloud-workouts")) || {};
+    delete pending[id];
+    await DB.set("pending-cloud-workouts", pending);
+  });
+}
+
+async function uploadFinishedSessionAutomatically() {
+  if (automaticUploadTask) return automaticUploadTask;
+  if (state.cloud.busy || !navigator.onLine || !state.cloud.config || !state.cloud.session) return;
+  automaticUploadTask = (async () => {
+    await queueFinishedSession();
+    const pending = (await DB.get("pending-cloud-workouts")) || {};
+    if (!Object.keys(pending).length) return;
+    try {
+      const session = await ensureCloudSession();
+      let uploadedCount = 0;
+      for (const workout of Object.values(pending)) {
+        if ((workout.cloudOwnerId && workout.cloudOwnerId !== session.user.id) || (workout.cloudProjectUrl && workout.cloudProjectUrl !== state.cloud.config.url)) continue;
+        const rows = await uploadWorkout(state.cloud.config, session, createExport(workout));
+        const remote = Array.isArray(rows) ? rows[0] : rows;
+        uploadedCount += 1;
+        let changedDuringUpload = false;
+        if (state.session.id === workout.id) {
+          changedDuringUpload = JSON.stringify(state.session.sets) !== JSON.stringify(workout.sets);
+          state.session.sync = { ...state.session.sync, supabaseId: remote?.id || "uploaded", supabaseUploadedAt: new Date().toISOString(), supabaseDirty: changedDuringUpload };
+          await persist();
+        }
+        if (changedDuringUpload) await queueFinishedSession();
+        else await removePendingWorkout(workout.id);
+      }
+      if (!uploadedCount) return;
+      showToast("已完成的训练已上传，Mac 同步后会更新下一次建议");
+      await loadTrainingSnapshot({ quiet: true });
+    } catch {
+      if (pending[state.session.id] && state.session.endedAt) {
+        state.session.sync = { ...state.session.sync, supabaseDirty: true };
+        await persist();
+      }
+      showToast("训练已保存在本机，云端暂未上传；联网后会自动重试");
+    }
+  })();
+  try { await automaticUploadTask; } finally { automaticUploadTask = null; }
+}
+
+function refreshTrainingInBackground() {
+  if (!document.hidden && navigator.onLine && (canDirectBodyOs || (state.cloud.config && state.cloud.session))) { uploadFinishedSessionAutomatically(); loadTrainingSnapshot({ quiet: true }); }
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { updateClocks(); refreshTrainingInBackground(); } });
+window.addEventListener("online", refreshTrainingInBackground);
+setInterval(refreshTrainingInBackground, 60000);
 document.addEventListener("error", (event) => { if (event.target?.classList?.contains("exercise-gif")) { event.target.hidden = true; event.target.parentElement?.classList.add("is-media-error"); } }, true);
 
 async function loadExerciseLibrary() {
@@ -736,8 +848,8 @@ async function boot() {
   if (state.session.rest && state.session.rest.remainingSeconds == null) {
     state.session.rest = { durationSeconds: state.session.rest.pausedSeconds || 90, remainingSeconds: state.session.rest.endsAt ? Math.max(0, Math.ceil((state.session.rest.endsAt - Date.now()) / 1000)) : (state.session.rest.pausedSeconds || 90), running: false, endsAt: null };
   }
-  await loadExerciseLibrary(); await persist(); const requested = location.hash.slice(1); state.screen = ["home","picker","custom","entry","summary","watch","cloud","history"].includes(requested) ? requested : "home"; if (state.screen === "entry" && !state.draft) state.screen = "home"; render();
-  if (canDirectBodyOs || (state.cloud.config && state.cloud.session)) loadTrainingSnapshot();
+  await loadExerciseLibrary(); await persist(); const requested = location.hash.slice(1); state.screen = ["home","picker","custom","entry","summary","watch","cloud","history","recommendation"].includes(requested) ? requested : "home"; if (state.screen === "entry" && !state.draft) state.screen = "home"; render();
+  if (canDirectBodyOs || (state.cloud.config && state.cloud.session)) { loadTrainingSnapshot(); uploadFinishedSessionAutomatically(); }
   if ("serviceWorker" in navigator) navigator.serviceWorker.register(new URL("./sw.js", location.href), { scope: "./" }).catch(() => {});
 }
 boot();
