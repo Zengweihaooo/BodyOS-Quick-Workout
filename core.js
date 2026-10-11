@@ -891,6 +891,7 @@ export function augmentTrainingSnapshot(history, row) {
     ...history,
     today: projection.today && typeof projection.today === "object" ? projection.today : {},
     recommendation: projection.recommendation || {},
+    aiReview: projection.aiReview || null,
     recommendationGeneratedAt: row.generated_at || projection.generatedAt || "",
     exerciseDefaults: { ...history.exerciseDefaults, ...(projection.exerciseDefaults || {}) },
     recommendationNotice: "",

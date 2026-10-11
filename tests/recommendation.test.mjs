@@ -69,3 +69,11 @@ test("pending queue mutations serialize removal and insertion without dropping n
   await run(async () => { pending.next = {}; });
   assert.ok(pending.next);
 });
+
+test("AI review projection remains optional and never supplies replacement history", () => {
+  const history = {workoutHistory:[{id:"real"}],exerciseDefaults:{}};
+  const merged = augmentTrainingSnapshot(history, {payload:{aiReview:{text:"Review",model:"chosen",needsConfirmation:true},workoutHistory:[{id:"fake"}]}});
+  assert.equal(merged.aiReview.model,"chosen");
+  assert.equal(merged.aiReview.needsConfirmation,true);
+  assert.deepEqual(merged.workoutHistory,history.workoutHistory);
+});

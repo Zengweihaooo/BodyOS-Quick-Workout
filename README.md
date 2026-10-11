@@ -49,3 +49,5 @@
 GitHub Pages 的训练历史继续从当前登录账号的 `body_os_workout_uploads` 重建。Mac 每 60 秒发布该账号的 `body_os_training_snapshots`，网页读取其中的下次 A/B 训练、组次数、RIR、上次参数、调整理由及生成时间；推荐投影不替换上传历史。推荐表缺失、为空或暂时不可读时，历史仍能查看，等待 Mac 发布推荐。静态肩部等组合仅为通用模板。
 
 登录并联网后，结束训练自动上传；失败保留本地，联网或每 60 秒重试结束会话。正在记录的训练不会逐组上传。网页每 60 秒及返回前台刷新推荐，录入页、动作搜索及正在输入的表单不重绘；离线或推荐超过 24 小时会显示提醒。点击动态推荐选择动作会把推荐 A/B 标识保存在训练导出中，供后端完成训练后轮换。
+
+Optional AI reviews follow the active model in the Mac API Hub. New structured workouts and model changes trigger asynchronous review; unchanged polls reuse cached results. AI advice requires confirmation for major plan changes and cannot overwrite the rule plan.

@@ -97,3 +97,5 @@
 .recommendation-exercise p, .recommendation-exercise small { line-height: 1.6; overflow-wrap: anywhere; }
 .recommendation-exercise small { display: block; color: var(--muted); }
 .today-plan li { margin-bottom: 8px; line-height: 1.6; }
+
+.ai-review-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; margin-top: 1rem; }
