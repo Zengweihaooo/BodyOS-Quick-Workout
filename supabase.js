@@ -1,4 +1,4 @@
-import { snapshotFromWorkoutUploads } from "./core.js?v=18";
+import { snapshotFromWorkoutUploads } from "./core.js?v=20";
 
 const PROJECT_URL_PATTERN = /^https:\/\/[a-z0-9-]+\.supabase\.co$/i;
 const UPLOADS_SETUP_HINT = "读不到已上传的训练表 public.body_os_workout_uploads。请确认登录账号在 allowlist 中，并已在 Supabase 执行过上传表那一段 SQL。";
@@ -15,6 +15,11 @@ export function normalizeSupabaseConfig(input = {}) {
   if (!PROJECT_URL_PATTERN.test(url)) throw new Error("项目地址必须是 https://<project-ref>.supabase.co");
   if (anonKey.length < 20 || /\s/.test(anonKey)) throw new Error("Supabase anon key 无效");
   return { url, anonKey };
+}
+
+export function migrateSupabaseConfig(saved, defaults, retiredUrls = []) {
+  const projectChanged = Boolean(saved && retiredUrls.includes(String(saved.url || "").replace(/\/+$/, "")));
+  return { config: !saved || projectChanged ? defaults : saved, projectChanged };
 }
 
 async function request(configInput, path, options = {}) {

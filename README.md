@@ -20,7 +20,7 @@
 - GitHub Pages 上点击“复制 Body.OS JSON”，再粘贴到 Body.OS 的“智能训练捕获”。JSON 会绕过 AI 二次解析并直接进入结构化确认。
 - GitHub Pages 已预置 BodyOS 的 Supabase Project URL 与公开 anon key，也可在训练总结中覆盖配置；使用 Supabase Auth 邮箱密码登录后即可幂等上传。密码不会持久化；数据库写入由 RLS 约束到登录用户，公开网页和 anon 角色均不能写入。
 - 登录后会读取 Body.OS 发布的训练专用快照：首页显示今日推荐计划；第一次打开动作时带入最近一次训练中使用的最大重量、次数、组数和休息参数；“训练历史”可逐次查看并与上一场包含相同动作的训练比较。
-- 双向同步只经过 Supabase：Pages 把新训练写入 `body_os_workout_uploads`，Body.OS 导入后把今日计划、最近动作参数与最近 120 次结构化训练发布到 `body_os_training_snapshots`。快照不包含病历、药物、附件或其他健康档案。
+- 双向同步只经过 Supabase：Pages 把新训练写入 `body_os_workout_uploads`，Body.OS 导入后把最近结构化训练发布回 `body_os_workout_uploads`，Pages 从上传表重建历史；服务端也维护 `body_os_training_snapshots`。只发布训练投影，不包含病历、药物、附件或其他健康档案。
 - 本地同源运行时仍可使用“一键导入 Body.OS”，沿用 `workout-capture/recognize` → Apple Watch 场次选择 → `workout-capture/confirm`。
 
 本地访问：`http://127.0.0.1:8766/quick-workout/`。
@@ -41,3 +41,5 @@
 - [hasaneyldrm/exercises-dataset](https://github.com/hasaneyldrm/exercises-dataset)：文本/元数据按其 MIT 许可使用；GIF/图片来自 Gym Visual，仍受源项目标注的独立媒体条款约束。本 PWA 只引用 `raw.githubusercontent.com` 的源文件。
 - [wger](https://github.com/wger-project/wger)：应用代码为 AGPL-3.0-or-later；每条动作说明和视频的 Creative Commons 许可及作者独立保存。页面仅展示清洗后的纯文本说明，并按需跳转到 wger，不预载大型 MOV。
 - 离线时第三方 GIF 与 wger 链接可能不可用，训练记录、动作名称、导出与用户自定义动作仍可使用。
+
+默认云端为独立免费的 BodyOS-Workout 项目，只用于训练同步。旧默认项目的浏览器配置会自动迁移，并要求重新登录；本机训练保留，自定义项目配置保持不变。PersonalSystem 整体云备份应使用独立的 `PERSONAL_SYSTEM_CLOUD_BACKUP_*` 配置，避免占用训练项目额度。

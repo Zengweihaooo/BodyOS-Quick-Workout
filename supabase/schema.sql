@@ -33,7 +33,7 @@ create table if not exists public.body_os_workout_uploads (
 alter table public.body_os_workout_uploads enable row level security;
 revoke all on table public.body_os_workout_uploads from anon;
 grant select, insert, update, delete on table public.body_os_workout_uploads to authenticated;
-grant select, update on table public.body_os_workout_uploads to service_role;
+grant select, insert, update on table public.body_os_workout_uploads to service_role;
 
 drop policy if exists "owners can read workout uploads" on public.body_os_workout_uploads;
 create policy "owners can read workout uploads" on public.body_os_workout_uploads for select to authenticated

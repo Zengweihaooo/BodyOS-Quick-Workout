@@ -1,11 +1,11 @@
 import { EXERCISE_CATALOG_VERSION, EXERCISE_REFERENCES, FALLBACK_EXERCISES, LOAD_LABELS, PICKER_ALPHABET, adjustRest, applyRecordingMode, buildBodyCandidate, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createExport, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, groupPickerCatalogByLetter, lookupExerciseDefault, mergeExerciseCatalog, nextSetDraft, normalizeSet, pickerLetterTarget, rankPickerExercises, recordingModeForSet, resolveCatalogExerciseId, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise, aggregateLiftPoints, displayLiftKg, liftChartMarkup, liftPointDetailMarkup, lookbackLiftDeltas, progressSeriesForExercise } from "./core.js?v=20";
-import { fetchTrainingSnapshot, normalizeSupabaseConfig, refreshSession, sessionIsFresh, signInWithPassword, uploadWorkout } from "./supabase.js?v=5";
+import { fetchTrainingSnapshot, migrateSupabaseConfig, normalizeSupabaseConfig, refreshSession, sessionIsFresh, signInWithPassword, uploadWorkout } from "./supabase.js?v=6";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const app = $("#app"), bottomBar = $("#bottomBar"), backButton = $("#backButton"), title = $("#screenTitle"), status = $("#networkStatus"), quickFinish = $("#quickFinish");
 const DEFAULT_SUPABASE_CONFIG = Object.freeze(normalizeSupabaseConfig({
-  url: "https://zvmesprbvoakonvxzpaj.supabase.co",
-  anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp2bWVzcHJidm9ha29udnh6cGFqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ1NTM1MjUsImV4cCI6MjEwMDEyOTUyNX0.kyXsxN72XkE7t9F8lbu4IaYiuJD7v8Xw1kkn3AlBmaM",
+  url: "https://lafxmiiovrayqlwvchbh.supabase.co",
+  anonKey: "sb_publishable_h7mR4wVYp1kYF4moZnzwVQ_rcaODVIS",
 }));
 const RECORDING_MODE_LABELS = Object.freeze({
   total: "总重量（双侧）", per_side: "每边配重（双侧同时）", per_limb_both: "每手重量（双侧同时）",
@@ -699,10 +699,26 @@ async function loadExerciseLibrary() {
 
 async function boot() {
   state.locale = (await DB.get("display-locale")) === "en" ? "en" : "zh";
-  state.cloud.config = (await DB.get("supabase-config")) || DEFAULT_SUPABASE_CONFIG; state.cloud.session = await DB.get("supabase-session");
+  const savedCloudConfig = await DB.get("supabase-config");
+  const savedCloudSession = await DB.get("supabase-session");
+  const migration = migrateSupabaseConfig(savedCloudConfig, DEFAULT_SUPABASE_CONFIG, ["https://zvmesprbvoakonvxzpaj.supabase.co"]);
+  // Earlier versions used the old default without saving its project config.
+  if (!savedCloudConfig && savedCloudSession) migration.projectChanged = true;
+  state.cloud.config = migration.config;
+  await DB.set("supabase-config", migration.config);
+  if (migration.projectChanged) {
+    await DB.set("supabase-session", null);
+    await DB.set("training-snapshot", null);
+  }
+  state.cloud.session = await DB.get("supabase-session");
   state.training.snapshot = await DB.get("training-snapshot");
   const saved = await DB.get("active-session"); state.session = saved?.sets && !saved.sync?.workoutId ? saved : createSession();
   state.session.sync = state.session.sync || { status: "local", draftId: "", workoutId: "" };
+  if (migration.projectChanged) {
+    delete state.session.sync.supabaseId;
+    delete state.session.sync.supabaseUploadedAt;
+    state.session.sync.supabaseDirty = false;
+  }
   state.session.sets = (state.session.sets || []).map((set) => ({ ...set, exerciseId: canonicalExerciseId(set.exerciseId) }));
   state.session.currentExerciseId = canonicalExerciseId(state.session.currentExerciseId || "");
   if (!state.session.timer) {

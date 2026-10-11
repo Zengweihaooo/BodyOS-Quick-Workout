@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { fetchTrainingSnapshot, normalizeSupabaseConfig, sessionIsFresh, uploadWorkout } from "../supabase.js";
+import { fetchTrainingSnapshot, migrateSupabaseConfig, normalizeSupabaseConfig, sessionIsFresh, uploadWorkout } from "../supabase.js";
 
 test("accepts only hosted Supabase HTTPS project URLs", () => {
   assert.deepEqual(normalizeSupabaseConfig({ url: "https://abc-123.supabase.co/", anonKey: "a".repeat(24) }), {
@@ -54,4 +54,13 @@ test("training history is read from uploaded workouts, not a snapshot table", as
     assert.equal(authorization, "Bearer signed-token");
     assert.equal(snapshot.workoutHistory[0].exercises[0].exerciseId, "dumbbell_flat_chest_press");
   } finally { globalThis.fetch = originalFetch; }
+});
+
+test("retired project migrates while custom projects remain intact", () => {
+  const defaults = { url: "https://new.supabase.co", anonKey: "new-key" };
+  const old = { url: "https://old.supabase.co/", anonKey: "old-key" };
+  assert.deepEqual(migrateSupabaseConfig(old, defaults, ["https://old.supabase.co"]), { config: defaults, projectChanged: true });
+  const custom = { url: "https://custom.supabase.co", anonKey: "custom-key" };
+  assert.deepEqual(migrateSupabaseConfig(custom, defaults, ["https://old.supabase.co"]), { config: custom, projectChanged: false });
+  assert.deepEqual(migrateSupabaseConfig(null, defaults), { config: defaults, projectChanged: false });
 });
