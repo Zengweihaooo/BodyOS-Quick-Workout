@@ -1,4 +1,4 @@
-import { snapshotFromWorkoutUploads, augmentTrainingSnapshot } from "./core.js?v=23";
+import { snapshotFromWorkoutUploads, augmentTrainingSnapshot } from "./core.js?v=24";
 
 const PROJECT_URL_PATTERN = /^https:\/\/[a-z0-9-]+\.supabase\.co$/i;
 const UPLOADS_SETUP_HINT = "读不到已上传的训练表 public.body_os_workout_uploads。请确认登录账号在 allowlist 中，并已在 Supabase 执行过上传表那一段 SQL。";
@@ -72,13 +72,24 @@ export async function uploadWorkout(config, session, workoutExport) {
   });
 }
 
+export async function saveAIChoice(config, session, choice) {
+  if (!session?.access_token || !session?.user?.id) throw new Error("请先登录云端");
+  if (!/^(follow_hub|chatgpt_subscription|api:[a-zA-Z0-9_.:-]+)$/.test(choice)) throw new Error("模型选择格式无效");
+  const now = new Date().toISOString(), requestId = crypto.randomUUID();
+  const row = { owner_id: session.user.id, client_session_id: "bodyos:ai-preference", schema_version: "body.os.quick-workout.v1",
+    session_started_at: now, payload: {kind:"body.os.workout-ai-choice.v1", choice, requestId}, updated_at: now, imported_at:null, imported_workout_id:null };
+  await request(config, "/rest/v1/body_os_workout_uploads?on_conflict=owner_id,client_session_id", {
+    method:"POST", headers:{Authorization:`Bearer ${session.access_token}`, Prefer:"resolution=merge-duplicates,return=minimal"}, body:JSON.stringify(row) });
+  return row.payload;
+}
+
 export async function fetchTrainingSnapshot(config, session) {
   if (!session?.access_token || !session?.user?.id) throw new Error("请先登录 Supabase");
   const owner = encodeURIComponent(session.user.id);
   try {
     const uploads = await request(
       config,
-      `/rest/v1/body_os_workout_uploads?select=payload,session_started_at,id&owner_id=eq.${owner}&order=session_started_at.desc&limit=120`,
+      `/rest/v1/body_os_workout_uploads?select=payload,session_started_at,id&owner_id=eq.${owner}&client_session_id=neq.bodyos%3Aai-preference&order=session_started_at.desc&limit=120`,
       { headers: { Authorization: `Bearer ${session.access_token}` } },
     );
     const history = snapshotFromWorkoutUploads(Array.isArray(uploads) ? uploads : []);
@@ -87,7 +98,13 @@ export async function fetchTrainingSnapshot(config, session) {
       const rows = await request(config,
         `/rest/v1/body_os_training_snapshots?select=payload,generated_at&owner_id=eq.${owner}&limit=1`,
         { headers: { Authorization: `Bearer ${session.access_token}` } });
-      return augmentTrainingSnapshot(history, Array.isArray(rows) ? rows[0] : null);
+      const snapshot = augmentTrainingSnapshot(history, Array.isArray(rows) ? rows[0] : null);
+      try {
+        const choices = await request(config, `/rest/v1/body_os_workout_uploads?select=payload,imported_at&owner_id=eq.${owner}&client_session_id=eq.bodyos%3Aai-preference&limit=1`, {headers:{Authorization:`Bearer ${session.access_token}`}});
+        const choice = Array.isArray(choices) ? choices[0] : null;
+        if (choice?.payload?.kind === "body.os.workout-ai-choice.v1") snapshot.aiChoiceRequest = {...choice.payload, pending:!choice.imported_at};
+      } catch { /* Optional choice status never hides workout history. */ }
+      return snapshot;
     } catch {
       return { ...history, recommendationNotice: "动态推荐暂时无法更新，历史训练仍可查看。" };
     }

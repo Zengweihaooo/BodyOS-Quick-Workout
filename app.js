@@ -1,5 +1,5 @@
-import { EXERCISE_CATALOG_VERSION, formatTrainingDate, canRefreshTrainingScreen, recommendationFreshness, shouldUploadFinishedSession, createSerialTaskQueue, EXERCISE_REFERENCES, FALLBACK_EXERCISES, LOAD_LABELS, PICKER_ALPHABET, adjustRest, applyRecordingMode, buildBodyCandidate, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createExport, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, groupPickerCatalogByLetter, lookupExerciseDefault, mergeExerciseCatalog, nextSetDraft, normalizeSet, pickerLetterTarget, rankPickerExercises, recordingModeForSet, resolveCatalogExerciseId, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise, aggregateLiftPoints, displayLiftKg, liftChartMarkup, liftPointDetailMarkup, lookbackLiftDeltas, progressSeriesForExercise } from "./core.js?v=23";
-import { fetchTrainingSnapshot, migrateSupabaseConfig, normalizeSupabaseConfig, refreshSession, sessionIsFresh, signInWithPassword, uploadWorkout } from "./supabase.js?v=9";
+import { EXERCISE_CATALOG_VERSION, formatTrainingDate, canRefreshTrainingScreen, recommendationFreshness, shouldUploadFinishedSession, createSerialTaskQueue, EXERCISE_REFERENCES, FALLBACK_EXERCISES, LOAD_LABELS, PICKER_ALPHABET, adjustRest, applyRecordingMode, buildBodyCandidate, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createExport, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, groupPickerCatalogByLetter, lookupExerciseDefault, mergeExerciseCatalog, nextSetDraft, normalizeSet, pickerLetterTarget, rankPickerExercises, recordingModeForSet, resolveCatalogExerciseId, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise, aggregateLiftPoints, displayLiftKg, liftChartMarkup, liftPointDetailMarkup, lookbackLiftDeltas, progressSeriesForExercise } from "./core.js?v=24";
+import { saveAIChoice, fetchTrainingSnapshot, migrateSupabaseConfig, normalizeSupabaseConfig, refreshSession, sessionIsFresh, signInWithPassword, uploadWorkout } from "./supabase.js?v=10";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const app = $("#app"), bottomBar = $("#bottomBar"), backButton = $("#backButton"), title = $("#screenTitle"), status = $("#networkStatus"), quickFinish = $("#quickFinish");
@@ -157,6 +157,31 @@ function recommendationListMarkup(values) {
   return items.length ? `<ul>${items.map((item) => `<li>${escapeHTML(typeof item === "string" ? ({ wearable_metrics_are_context_not_training_clearance: "睡眠、心率和 HRV 只作参考，不能单独决定训练强度。", nutrition_not_used_without_logged_intake: "尚未记录的饮食不会按零摄入处理。", current_pain_and_fatigue_require_self_report: "训练前仍需根据当前疼痛和疲劳调整。" })[item] || item : item.message || item.reason || item.label || "")}</li>`).join("")}</ul>` : "";
 }
 
+function aiChoiceMarkup(snapshot) {
+  const review = snapshot.aiReview || {}, request = snapshot.aiChoiceRequest;
+  const pending = request?.pending || (request?.requestId && request.requestId !== review.appliedRequestId);
+  const selected = pending ? request.choice : review.choice || "follow_hub";
+  const rejected = request && review.choiceError?.requestId === request.requestId ? review.choiceError.message : "";
+  const choices = Array.isArray(review.choices) ? review.choices : [];
+  return choices.length ? `<form id="aiChoiceForm" class="custom-form"><div class="field"><label for="aiModelChoice">本次及后续训练复盘使用</label><select id="aiModelChoice">${choices.map(c=>`<option value="${escapeHTML(c.id)}" ${selected===c.id?"selected":""} ${c.available?"":"disabled"}>${escapeHTML(c.label)}${c.available?"":"（Mac 尚未登录）"}</option>`).join("")}</select></div><button class="secondary" type="submit" ${state.aiChoiceSaving?"disabled":""}>${state.aiChoiceSaving?"正在保存…":"保存模型选择"}</button><small>${rejected?escapeHTML(rejected):pending?"选择已保存，等待 Mac 接收后重新生成复盘。":"API 按调用计费；订阅选项使用已登录 ChatGPT 账号的 Codex 额度。"}</small></form>` : "";
+}
+
+async function submitAIChoice(event) {
+  event.preventDefault();
+  const choice = $("#aiModelChoice").value;
+  if (!navigator.onLine) return showToast("请联网后保存模型选择；训练记录仍保存在本机。");
+  if (!state.cloud.session) return navigate("cloud");
+  state.aiChoiceSaving = true;
+  try {
+    const session = await ensureCloudSession();
+    const request = await saveAIChoice(state.cloud.config, session, choice);
+    if (state.training.snapshot) state.training.snapshot.aiChoiceRequest = {...request,pending:true};
+    showToast("模型选择已保存，Mac 在线时会自动接收并生成复盘");
+    await loadTrainingSnapshot({quiet:true});
+  } catch (error) { showToast(error.message || "模型选择保存失败"); }
+  finally { state.aiChoiceSaving=false; if (state.screen === "recommendation") render(); }
+}
+
 function renderRecommendation() {
   setScreenHeading("渐进训练建议");
   const snapshot = state.training.snapshot || {}, today = snapshot.today || {}, recommendation = snapshot.recommendation || {};
@@ -170,12 +195,13 @@ function renderRecommendation() {
       const weightText = weight != null ? typeof weight === "object" ? `${weight.value ?? weight.weightValue ?? ""}${weight.unit || weight.weightUnit || "kg"}` : `${weight}${item.targetWeightUnit || item.weightUnit || "kg"}` : "先选能稳定完成的重量";
       return `<section class="section recommendation-exercise"><h2>${escapeHTML(item.name || item.exerciseId)}</h2><strong>${escapeHTML(item.sets ?? "—")} 组 · ${escapeHTML(item.minReps ?? "—")}–${escapeHTML(item.maxReps ?? "—")} 次${item.targetRir != null ? ` · 保留 ${escapeHTML(Array.isArray(item.targetRir) ? item.targetRir.join("–") : item.targetRir)} 次余力` : ""}</strong><p>建议重量：${escapeHTML(weightText)}${item.targetLoadMode ? ` · ${escapeHTML(LOAD_LABELS[item.targetLoadMode] || item.targetLoadMode)}` : ""}${item.targetExecutionMode === "unilateral" ? " · 单侧" : ""}</p><small>${escapeHTML(previousText)}</small>${item.restSeconds ? `<small>组间休息 ${escapeHTML(item.restSeconds)} 秒</small>` : ""}${item.progressionRule || item.progression ? `<p>${escapeHTML(item.progressionRule || item.progression)}</p>` : ""}${recommendationListMarkup(item.reason || item.reasons || item.reasoning)}</section>`;
     }).join("")}
-    ${snapshot.aiReview ? `<section class="section"><div class="section-head"><h2>AI 训练复盘</h2><span class="label">跟随 API Hub</span></div><small>当前选择：${escapeHTML(snapshot.aiReview.selectedProvider || "")} / ${escapeHTML(snapshot.aiReview.selectedModel || "")}</small><p>${snapshot.aiReview.status === "updating" ? "正在生成新的复盘，稍后自动更新。" : snapshot.aiReview.status === "retry_pending" ? "AI 暂时不可用，稍后重试；日常训练建议仍按规则更新。" : snapshot.aiReview.status === "rules_only" ? "API Hub 当前选择规则模式，AI 复盘已停用。" : snapshot.aiReview.status === "unconfigured" ? "请先在 Mac 的 API Hub 配置可用模型。" : "新增训练后及每周自动复盘。"}</p>${snapshot.aiReview.text ? `<small>复盘模型：${escapeHTML(snapshot.aiReview.model)} · ${formatTrainingDate(snapshot.aiReview.generatedAt, {month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"})}${snapshot.aiReview.stale ? " · 已有变化，等待更新" : ""}</small><div class="ai-review-text">${escapeHTML(snapshot.aiReview.text)}</div>` : ""}<p class="muted">AI 建议供你判断；重大计划调整须由你确认。切换模型请在 Mac 的 API Hub 完成。</p></section>` : ""}
+    ${snapshot.aiReview ? `<section class="section"><div class="section-head"><h2>AI 训练复盘</h2><span class="label">${snapshot.aiReview.billing === "subscription" ? "ChatGPT 订阅" : "API 模型"}</span></div>${aiChoiceMarkup(snapshot)}<small>当前生效：${escapeHTML(snapshot.aiReview.selectedProvider || "")} / ${escapeHTML(snapshot.aiReview.selectedModel || "")}</small><p>${snapshot.aiReview.status === "updating" ? "正在生成新的复盘，稍后自动更新。" : snapshot.aiReview.status === "retry_pending" ? "AI 暂时不可用，稍后重试；日常训练建议仍按规则更新。" : snapshot.aiReview.status === "rules_only" ? "API Hub 当前选择规则模式，AI 复盘已停用。" : snapshot.aiReview.status === "unconfigured" ? "请先在 Mac 的 API Hub 配置可用模型。" : "新增训练后及每周自动复盘。"}</p>${snapshot.aiReview.text ? `<small>复盘模型：${escapeHTML(snapshot.aiReview.model)} · ${formatTrainingDate(snapshot.aiReview.generatedAt, {month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"})}${snapshot.aiReview.stale ? " · 已有变化，等待更新" : ""}</small><div class="ai-review-text">${escapeHTML(snapshot.aiReview.text)}</div>` : ""}<p class="muted">AI 建议供你判断；重大计划调整须由你确认。可以在这里选择已配置的 API 模型或 ChatGPT 订阅；Mac 在线时自动生效。</p></section>` : ""}
     <section class="section"><h2>如何渐进</h2><p>所有工作组达到次数上限、动作稳定且仍保留目标余力，连续两次后才增加最小可用重量。不要同时加重量和加组；若恢复或表现变差，保持或减少本次剂量。</p>${recommendationListMarkup(recommendation.progressionRules)}${(recommendation.recoveryInputGaps || recommendation.inputGaps)?.length ? `<h3>仍待补充的数据</h3>${recommendationListMarkup(recommendation.recoveryInputGaps || recommendation.inputGaps)}` : ""}</section>`;
   bottomBar.innerHTML = `<button class="secondary" id="recommendationHome">返回训练</button><button class="primary" id="useRecommendation" ${exercises.length ? "" : "disabled"}>选择推荐动作</button>`;
   $("#recommendationHome").onclick = () => navigate("home");
   $("#useRecommendation").onclick = () => navigate("picker", { pickerPresetKey: "bodyos_today" });
   $("#refreshRecommendation").onclick = () => loadTrainingSnapshot();
+  $("#aiChoiceForm")?.addEventListener("submit", submitAIChoice);
 }
 
 function renderHome() {

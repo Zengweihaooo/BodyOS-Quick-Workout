@@ -51,3 +51,9 @@ GitHub Pages 的训练历史继续从当前登录账号的 `body_os_workout_uplo
 登录并联网后，结束训练自动上传；失败保留本地，联网或每 60 秒重试结束会话。正在记录的训练不会逐组上传。网页每 60 秒及返回前台刷新推荐，录入页、动作搜索及正在输入的表单不重绘；离线或推荐超过 24 小时会显示提醒。点击动态推荐选择动作会把推荐 A/B 标识保存在训练导出中，供后端完成训练后轮换。
 
 Optional AI reviews follow the active model in the Mac API Hub. New structured workouts and model changes trigger asynchronous review; unchanged polls reuse cached results. AI advice requires confirmation for major plan changes and cannot overwrite the rule plan.
+
+On the progressive recommendation screen, save a model choice directly from
+the phone: follow the Hub, select a configured API profile, or use the signed-in
+ChatGPT subscription through local Codex. The Mac receives this owner-scoped
+choice and recomputes advice; it must be online. Subscription access uses Codex
+plan limits and never silently falls back to a paid API.

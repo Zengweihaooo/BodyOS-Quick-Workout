@@ -72,3 +72,9 @@ create policy "owners can read training snapshot" on public.body_os_training_sna
   using ((select auth.uid()) = owner_id and exists (
     select 1 from public.body_os_allowed_users where user_id = (select auth.uid())
   ));
+
+-- The upload transport also carries one reserved, owner-scoped settings control
+-- row: client_session_id='bodyos:ai-preference', schema_version remains the
+-- transport's v1 value, payload.kind='body.os.workout-ai-choice.v1'.
+-- Backend validates configured choices; this row is excluded from workout
+-- history and never creates a workout or capture draft. No new grants.

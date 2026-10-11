@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { fetchTrainingSnapshot, migrateSupabaseConfig, normalizeSupabaseConfig, sessionIsFresh, uploadWorkout } from "../supabase.js";
+import { fetchTrainingSnapshot, migrateSupabaseConfig, normalizeSupabaseConfig, sessionIsFresh, uploadWorkout, saveAIChoice } from "../supabase.js";
 
 test("accepts only hosted Supabase HTTPS project URLs", () => {
   assert.deepEqual(normalizeSupabaseConfig({ url: "https://abc-123.supabase.co/", anonKey: "a".repeat(24) }), {
@@ -51,7 +51,8 @@ test("training history remains uploads-based while optional recommendations are 
       { access_token: "signed-token", user: { id: "owner-id" } },
     );
     assert.match(urls[0], /body_os_workout_uploads/);
-    assert.match(String(requestUrl), /body_os_training_snapshots.*owner_id=eq.owner-id/);
+    assert.ok(urls.some(url => /body_os_training_snapshots.*owner_id=eq.owner-id/.test(url)));
+    assert.match(urls[0], /client_session_id=neq.bodyos%3Aai-preference/);
     assert.equal(snapshot.today.title, "A");
     assert.equal(authorization, "Bearer signed-token");
     assert.equal(snapshot.workoutHistory[0].exercises[0].exerciseId, "dumbbell_flat_chest_press");
@@ -84,3 +85,15 @@ for (const failure of ["missing", "empty", "network"]) {
     } finally { globalThis.fetch = original; }
   });
 }
+
+test("phone model choice is owner scoped, contains no credentials and stays out of workout history", async () => {
+  const original=globalThis.fetch;let row;
+  globalThis.fetch=async (_url,options)=>{row=JSON.parse(options.body);return {ok:true,status:204,json:async()=>null};};
+  try {
+    const selected=await saveAIChoice({url:"https://abc.supabase.co",anonKey:"a".repeat(24)}, {access_token:"private-token",user:{id:"owner"}}, "chatgpt_subscription");
+    assert.equal(row.owner_id,"owner");assert.equal(row.client_session_id,"bodyos:ai-preference");
+    assert.equal(selected.kind,"body.os.workout-ai-choice.v1");assert.equal(row.imported_at,null);
+    assert.equal(selected.choice,"chatgpt_subscription");assert.ok(selected.requestId);
+    assert.equal(JSON.stringify(row).includes("private-token"),false);
+  } finally {globalThis.fetch=original;}
+});
