@@ -66,12 +66,12 @@ function exerciseIcon(exercise) { const reduced = globalThis.matchMedia?.("(pref
 
 function exerciseCategory(exercise) {
   const text = `${exercise.name || ""} ${exercise.movementPattern || ""}`.toLowerCase();
-  if (/dead bug|plank|pallof|crunch|woodchop|anti_|trunk_flexion|rotation|死虫|平板|帕洛夫|卷腹|伐木|核心/.test(text)) return "core";
+  if (/dead bug|plank|pallof|crunch|woodchop|anti_|trunk_flexion|rotation|死虫|平板支撑|帕洛夫|卷腹|伐木|核心/.test(text)) return "core";
   if (/locomotion|cycling|elliptical|treadmill|jump rope|mountain climber|自行车|椭圆机|坡度走|跳绳|登山跑|有氧/.test(text)) return "cardio";
   if (/curl|triceps|biceps|肱|弯举|下压|臂屈伸|手臂/.test(text)) return "arms";
   if (/shoulder|deltoid|vertical_push|abduction|flexion|推肩|肩|平举|站姿飞鸟|俯身飞鸟/.test(text)) return "shoulders";
   if (/squat|hinge|lunge|leg|calf|深蹲|硬拉|腿|臀|提踵/.test(text)) return "legs";
-  if (/pull|row|back|lat|下拉|划船|引体|背/.test(text)) return "back";
+  if (/pull|row|back|\blats?\b|下拉|划船|引体|背/.test(text)) return "back";
   if (/push|press|chest|adduction|卧推|推胸|夹胸|胸/.test(text)) return "chest";
   return "other";
 }
