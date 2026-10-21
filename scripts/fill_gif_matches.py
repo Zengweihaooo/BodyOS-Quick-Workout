@@ -87,6 +87,8 @@ def normalize(value: str) -> str:
 
 def score(item_name: str, aliases: list[str]) -> float:
     name = normalize(item_name)
+    if not name:
+        return 0.0
     best = 0.0
     for alias in aliases:
         target = normalize(alias)
@@ -139,7 +141,7 @@ def wger_for(english: str) -> dict | None:
     best_score = 0.0
     for item in results or []:
         translations = item.get("translations") or []
-        english_row = next((row for row in translations if row.get("language") == 2), None) or (translations[0] if translations else {})
+        english_row = next((row for row in translations if row.get("language") == 2), None) or {}
         title = english_row.get("name") or item.get("name") or ""
         current = score(title, [english])
         if current > best_score:
@@ -156,19 +158,18 @@ def wger_for(english: str) -> dict | None:
                 "descriptionZh": "",
                 "author": "",
                 "authors": [],
-                "license": {"short_name": "CC-BY-SA 4", "full_name": "Creative Commons Attribution Share Alike 4", "url": "https://creativecommons.org/licenses/by-sa/4.0/deed.en"},
+                "license": {},  # Never invent attribution for an unreviewed candidate.
                 "translationLicenseEn": {},
                 "translationLicenseZh": {},
                 "videoLicense": {},
                 "confidence": round(current, 2),
-                "matchType": "exact" if current >= 0.92 else "reference",
+                "matchType": "unverified_candidate",
             }
     return best if best_score >= 0.82 and best and best.get("id") else None
 
 
 def main() -> None:
     source, catalog, exercises = load_core()
-    used = {str(item.get("datasetId")) for item in catalog.values()}
     dataset = fetch_json(DATASET_URL)
     records = [item for item in dataset if isinstance(item, dict) and item.get("gif_url")]
     added = []
@@ -183,7 +184,7 @@ def main() -> None:
         pick = None
         for current, item in ranked:
             dataset_id = str(item.get("id"))
-            if current < 0.82 or dataset_id in used:
+            if current < 0.82:
                 continue
             pick = (current, item)
             break
@@ -192,7 +193,6 @@ def main() -> None:
             continue
         current, item = pick
         dataset_id = str(item.get("id"))
-        used.add(dataset_id)
         gif = str(item.get("gif_url") or "").lstrip("/")
         image = str(item.get("image") or "").lstrip("/")
         wger = None
@@ -203,13 +203,16 @@ def main() -> None:
         catalog[ident] = {
             "datasetId": dataset_id,
             "sourceNameEn": item.get("name") or "",
-            "gifUrl": f"{RAW}/{gif}",
-            "thumbnailUrl": f"{RAW}/{image}" if image else "",
+            "gifUrl": "",
+            "thumbnailUrl": "",
+            "mediaStatus": "pending",
+            "unverifiedDataset": {"datasetId": dataset_id, "sourceNameEn": item.get("name") or "", "gifUrl": f"{RAW}/{gif}", "thumbnailUrl": f"{RAW}/{image}" if image else "", "reviewStatus": "pending_variant_review"},
             "detailsProvider": "wger",
-            "detailsStatus": "ready" if wger else "pending",
-            "instructionsEn": [wger["descriptionEn"]] if wger and wger.get("descriptionEn") else [],
+            "detailsStatus": "pending",
+            "instructionsEn": [],
             "instructionsZh": [],
-            "wger": wger,
+            "wger": None,
+            "unverifiedWger": wger,
         }
         added.append({"id": ident, "datasetId": dataset_id, "name": item.get("name"), "score": current, "wger": bool(wger)})
     replacement = PREFIX + json.dumps(catalog, ensure_ascii=False, separators=(",", ":")) + ";"

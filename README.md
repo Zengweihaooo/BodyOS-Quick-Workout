@@ -57,3 +57,11 @@ the phone: follow the Hub, select a configured API profile, or use the signed-in
 ChatGPT subscription through local Codex. The Mac receives this owner-scoped
 choice and recomputes advice; it must be online. Subscription access uses Codex
 plan limits and never silently falls back to a paid API.
+
+### Exercise catalog review (2026-10-21)
+
+Built-in picker categories use canonical IDs rather than display-name substring matching, so language changes cannot move an exercise between groups. Categories are browsing groups rather than an exclusive list of muscles worked: dips remain under chest, face pulls under back, back extensions under legs, and loaded carries under Other.
+
+Confirmed unrelated wger descriptions have been removed from active guides. Their original source and license are retained in `unverifiedWger` for review; these fields are never used as instructions. Four mismatched or insufficiently specific animation variants are pending review and show the movement icon instead. The media matching helper now produces pending candidates, cannot assign an empty or non-English title to every exercise, never invents a license, and permits different movements to reference the same source when appropriate. A catalog row or a successful URL check does not prove a semantic media match.
+
+Body OS capability flags describe supported choices. They do not override reviewed built-in load and bilateral execution defaults. Existing saved sets are preserved.

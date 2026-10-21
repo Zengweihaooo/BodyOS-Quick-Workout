@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { EXERCISE_REFERENCES, formatTrainingDate, normalizeTrainingTimestamp, FALLBACK_EXERCISES, LEGACY_EXERCISE_ID_MAP, adjustRest, applyRecordingMode, buildBodyCandidate, calculateSetVolume, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, exerciseHistorySessionCounts, groupPickerCatalogByLetter, mergeExerciseCatalog, nextSetDraft, pickerLetter, pickerLetterTarget, rankPickerExercises, recordingModeForSet, restRemainingSeconds, sessionSummary, sortPickerExercisesByName, timerElapsedMs, toMarkdown, withoutExercise, aggregateLiftPoints, displayLiftKg, estimated1rmKg, liftChartMarkup, lookbackLiftDeltas, pointsInLiftRange, progressSeriesForExercise, snapshotFromWorkoutUploads, summarizeLiftDay } from "../core.js";
+import { EXERCISE_REFERENCES, bodyLibraryExercise, formatTrainingDate, normalizeTrainingTimestamp, FALLBACK_EXERCISES, LEGACY_EXERCISE_ID_MAP, adjustRest, applyRecordingMode, buildBodyCandidate, calculateSetVolume, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, exerciseHistorySessionCounts, groupPickerCatalogByLetter, mergeExerciseCatalog, nextSetDraft, pickerLetter, pickerLetterTarget, rankPickerExercises, recordingModeForSet, restRemainingSeconds, sessionSummary, sortPickerExercisesByName, timerElapsedMs, toMarkdown, withoutExercise, aggregateLiftPoints, displayLiftKg, estimated1rmKg, liftChartMarkup, lookbackLiftDeltas, pointsInLiftRange, progressSeriesForExercise, snapshotFromWorkoutUploads, summarizeLiftDay } from "../core.js";
 
 const base = { exerciseId: "press", exerciseName: "哑铃推胸", weightValue: 10, weightUnit: "kg", reps: 12, completedAt: "2026-07-15T21:00:00+08:00", restSeconds: 90 };
 
@@ -119,11 +119,10 @@ test("legacy action ids migrate to Body OS canonical ids", () => {
 test("reviewed Body OS references use allowlisted URLs and separated sources", () => {
   const catalogIds = [...new Set(FALLBACK_EXERCISES.map((item) => item.id))];
   assert.equal(Object.keys(EXERCISE_REFERENCES).length, catalogIds.length);
-  assert.equal(new Set(Object.values(EXERCISE_REFERENCES).map((item) => item.datasetId)).size, catalogIds.length);
-  assert.ok(catalogIds.every((id) => EXERCISE_REFERENCES[id]?.gifUrl), "every catalog exercise should have a GIF");
+  assert.ok(catalogIds.every((id) => EXERCISE_REFERENCES[id]?.gifUrl || EXERCISE_REFERENCES[id]?.mediaStatus === "pending"), "uncertain variants must be explicit instead of showing a wrong animation");
   assert.ok(Object.keys(EXERCISE_REFERENCES).every((id) => FALLBACK_EXERCISES.some((item) => item.id === id)));
   for (const [id, reference] of Object.entries(EXERCISE_REFERENCES)) {
-    const gif = new URL(reference.gifUrl);
+    const gif = new URL(reference.gifUrl || reference.unverifiedDataset.gifUrl);
     assert.equal(gif.protocol, "https:", id);
     assert.equal(gif.hostname, "raw.githubusercontent.com", id);
     assert.ok(gif.pathname.startsWith("/hasaneyldrm/exercises-dataset/"), id);
@@ -172,7 +171,7 @@ test("mobile catalog contains the history-critical machine actions", () => {
   assert.equal(EXERCISE_REFERENCES.elliptical_low_intensity.wger.id, 962);
   assert.ok(EXERCISE_REFERENCES.push_up.gifUrl);
   assert.ok(EXERCISE_REFERENCES.meadows_row.gifUrl);
-  assert.ok(EXERCISE_REFERENCES.landmine_press.gifUrl);
+  assert.equal(EXERCISE_REFERENCES.landmine_press.mediaStatus, "pending");
 });
 
 test("stale IndexedDB rows cannot replace new built-ins and custom rows survive", () => {
@@ -341,4 +340,25 @@ test("Body OS space-separated timestamps become iPhone-compatible ISO dates", ()
   assert.doesNotThrow(() => formatTrainingDate(snapshot.workoutHistory[0].startedAt, { month: "short", day: "numeric" }));
   assert.equal(formatTrainingDate("invalid"), "日期未知");
   assert.equal(formatTrainingDate(""), "日期未知");
+});
+
+test("known unrelated wger descriptions remain archived audit metadata, never active instructions", () => {
+  let removed = 0;
+  for (const [id, ref] of Object.entries(EXERCISE_REFERENCES)) {
+    assert.notEqual(ref.wger?.id, 320, id);
+    if (ref.unverifiedWger) { removed++; assert.equal(ref.wger, null); assert.deepEqual(ref.instructionsEn, []); assert.deepEqual(ref.instructionsZh, []); assert.ok(ref.unverifiedWger.license.short_name); }
+  }
+  assert.equal(removed, 36);
+  for (const id of ["landmine_press", "front_plank", "incline_dumbbell_row", "hip_thrust"]) {
+    const ref = EXERCISE_REFERENCES[id]; assert.equal(ref.gifUrl, ""); assert.equal(ref.thumbnailUrl, ""); assert.equal(ref.mediaStatus, "pending"); assert.ok(ref.unverifiedDataset.gifUrl);
+  }
+});
+
+test("Body library capabilities cannot silently change reviewed bilateral recording defaults", () => {
+  for (const id of ["wide_grip_lat_pulldown", "close_grip_seated_row", "machine_chest_press", "dumbbell_neutral_grip_bench_press"]) {
+    const reviewed = FALLBACK_EXERCISES.find(x => x.id === id);
+    const mapped = bodyLibraryExercise({id, canonical_name_zh: reviewed.name, supports_unilateral_execution: 1, supports_per_side_load: 1, default_load_mode: "total"});
+    for (const key of ["loadMode", "executionMode", "sideCount"]) assert.equal(mapped[key], reviewed[key], `${id} ${key}`);
+  }
+  assert.equal(bodyLibraryExercise({id:"new-machine",supports_unilateral_execution:1}).executionMode,"bilateral");
 });

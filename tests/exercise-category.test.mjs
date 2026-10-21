@@ -1,14 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { runInNewContext } from "node:vm";
-import { FALLBACK_EXERCISES, canonicalExerciseId } from "../core.js";
-
-// Exercise the exact picker classifier, without starting a recording or DB.
-const app = readFileSync(new URL("../app.js", import.meta.url), "utf8");
-const declaration = app.match(/function exerciseCategory\(exercise\) \{[\s\S]*?\n\}/);
-assert.ok(declaration, "picker classifier must remain covered");
-const category = runInNewContext(`(${declaration[0]})`);
+import { FALLBACK_EXERCISES, EXERCISE_CATEGORIES, exerciseCategory as category, canonicalExerciseId } from "../core.js";
 
 test("flat and incline presses remain visible under chest in either language", () => {
   for (const name of ["哑铃平板推胸", "杠铃平板卧推", "哑铃上斜推胸", "Dumbbell Flat Bench Press", "Flat Bench Press", "Incline Dumbbell Press"]) {
@@ -27,4 +19,28 @@ test("planks stay under core and chest-supported rows stay under back", () => {
   }
   assert.equal(category({ name: "胸托哑铃划船", movementPattern: "horizontal_pull" }), "back");
   assert.equal(category({ name: "Lat Pulldown", movementPattern: "vertical_pull" }), "back");
+});
+
+test("all built-ins keep one category across Chinese, English and renamed display text", () => {
+  assert.equal(Object.keys(EXERCISE_CATEGORIES).length, FALLBACK_EXERCISES.length);
+  for (const exercise of FALLBACK_EXERCISES) {
+    const expected = EXERCISE_CATEGORIES[exercise.id];
+    assert.ok(["chest", "back", "shoulders", "legs", "arms", "core", "cardio", "other"].includes(expected));
+    assert.equal(category(exercise), expected);
+    assert.equal(category({ ...exercise, name: exercise.canonicalNameEn }), expected);
+    assert.equal(category({ id: exercise.id, name: "renamed custom display" }), expected);
+  }
+});
+
+test("joint names and generic curl or rotation words cannot steal built-in categories", () => {
+  const groups = {
+    legs: ["leg_curl", "leg_extension"],
+    back: ["arm_down_back_machine", "straight_arm_pulldown", "cable_pullover", "dumbbell_pullover"],
+    shoulders: ["cable_external_rotation", "machine_reverse_fly", "rear_delt_fly_machine", "seated_bent_over_reverse_fly"],
+    chest: ["dip"],
+    arms: ["barbell_biceps_curl", "triceps_pushdown"],
+  };
+  for (const [expected, ids] of Object.entries(groups)) for (const id of ids) assert.equal(category(FALLBACK_EXERCISES.find(x => x.id === id)), expected, id);
+  assert.equal(category({ name: "Leg Curl" }), "legs");
+  assert.equal(category({ name: "Cable External Rotation", movementPattern: "external_rotation" }), "shoulders");
 });
