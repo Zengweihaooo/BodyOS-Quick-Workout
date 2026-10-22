@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { EXERCISE_REFERENCES, bodyLibraryExercise, formatTrainingDate, normalizeTrainingTimestamp, FALLBACK_EXERCISES, LEGACY_EXERCISE_ID_MAP, adjustRest, applyRecordingMode, buildBodyCandidate, calculateSetVolume, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, exerciseHistorySessionCounts, groupPickerCatalogByLetter, mergeExerciseCatalog, nextSetDraft, pickerLetter, pickerLetterTarget, rankPickerExercises, recordingModeForSet, restRemainingSeconds, sessionSummary, sortPickerExercisesByName, timerElapsedMs, toMarkdown, withoutExercise, aggregateLiftPoints, displayLiftKg, estimated1rmKg, liftChartMarkup, lookbackLiftDeltas, pointsInLiftRange, progressSeriesForExercise, snapshotFromWorkoutUploads, summarizeLiftDay } from "../core.js";
+import { EXERCISE_REFERENCES, exerciseGuide, bodyLibraryExercise, formatTrainingDate, normalizeTrainingTimestamp, FALLBACK_EXERCISES, LEGACY_EXERCISE_ID_MAP, adjustRest, applyRecordingMode, buildBodyCandidate, calculateSetVolume, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, exerciseHistorySessionCounts, groupPickerCatalogByLetter, mergeExerciseCatalog, nextSetDraft, pickerLetter, pickerLetterTarget, rankPickerExercises, recordingModeForSet, restRemainingSeconds, sessionSummary, sortPickerExercisesByName, timerElapsedMs, toMarkdown, withoutExercise, aggregateLiftPoints, displayLiftKg, estimated1rmKg, liftChartMarkup, lookbackLiftDeltas, pointsInLiftRange, progressSeriesForExercise, snapshotFromWorkoutUploads, summarizeLiftDay } from "../core.js";
 
 const base = { exerciseId: "press", exerciseName: "哑铃推胸", weightValue: 10, weightUnit: "kg", reps: 12, completedAt: "2026-07-15T21:00:00+08:00", restSeconds: 90 };
 
@@ -131,6 +131,7 @@ test("reviewed Body OS references use allowlisted URLs and separated sources", (
     assert.ok(Array.isArray(reference.instructionsZh), id);
     if (reference.wger) {
       assert.equal(reference.detailsStatus, "ready", id);
+      assert.ok(reference.wger.descriptionEn?.trim() || reference.wger.descriptionZh?.trim(), `ready guide must contain text: ${id}`);
       if (reference.wger.descriptionEn) {
         assert.ok(reference.instructionsEn.length, id);
         assert.equal(reference.instructionsEn[0], reference.wger.descriptionEn, id);
@@ -156,7 +157,8 @@ test("mobile catalog contains the history-critical machine actions", () => {
   assert.equal(EXERCISE_REFERENCES.seated_dumbbell_lateral_raise.datasetId, "0396");
   assert.equal(EXERCISE_REFERENCES.seated_dumbbell_lateral_raise.wger.id, 918);
   assert.equal(EXERCISE_REFERENCES.machine_reverse_fly.datasetId, "0602");
-  assert.equal(EXERCISE_REFERENCES.machine_reverse_fly.wger.id, 2464);
+  assert.equal(EXERCISE_REFERENCES.machine_reverse_fly.wger, null);
+  assert.equal(EXERCISE_REFERENCES.machine_reverse_fly.unverifiedWger.id, 2464);
   assert.equal(EXERCISE_REFERENCES.machine_lateral_raise.datasetId, "0584");
   assert.equal(EXERCISE_REFERENCES.machine_lateral_raise.wger.id, 1744);
   assert.equal(EXERCISE_REFERENCES.face_pull.wger.id, 222);
@@ -346,9 +348,14 @@ test("known unrelated wger descriptions remain archived audit metadata, never ac
   let removed = 0;
   for (const [id, ref] of Object.entries(EXERCISE_REFERENCES)) {
     assert.notEqual(ref.wger?.id, 320, id);
-    if (ref.unverifiedWger) { removed++; assert.equal(ref.wger, null); assert.deepEqual(ref.instructionsEn, []); assert.deepEqual(ref.instructionsZh, []); assert.ok(ref.unverifiedWger.license.short_name); }
+    if (ref.unverifiedWger) {
+      removed++;
+      assert.ok(ref.unverifiedWger.license.short_name);
+      if (ref.detailsStatus === "pending") { assert.equal(ref.wger, null); assert.deepEqual(ref.instructionsEn, []); assert.deepEqual(ref.instructionsZh, []); }
+      else assert.notEqual(ref.wger.id, ref.unverifiedWger.id, id);
+    }
   }
-  assert.equal(removed, 36);
+  assert.equal(removed, 41);
   for (const id of ["landmine_press", "front_plank", "incline_dumbbell_row", "hip_thrust"]) {
     const ref = EXERCISE_REFERENCES[id]; assert.equal(ref.gifUrl, ""); assert.equal(ref.thumbnailUrl, ""); assert.equal(ref.mediaStatus, "pending"); assert.ok(ref.unverifiedDataset.gifUrl);
   }
@@ -361,4 +368,83 @@ test("Body library capabilities cannot silently change reviewed bilateral record
     for (const key of ["loadMode", "executionMode", "sideCount"]) assert.equal(mapped[key], reviewed[key], `${id} ${key}`);
   }
   assert.equal(bodyLibraryExercise({id:"new-machine",supports_unilateral_execution:1}).executionMode,"bilateral");
+});
+
+
+test("empty or unreviewed guides cannot display a matched source", () => {
+  assert.equal(EXERCISE_REFERENCES.landmine_press.detailsStatus, "pending");
+  assert.equal(EXERCISE_REFERENCES.landmine_press.wger, null);
+  assert.equal(EXERCISE_REFERENCES.landmine_press.unverifiedWger.id, 346);
+  assert.deepEqual(exerciseGuide(EXERCISE_REFERENCES.landmine_press), { description: "", source: null });
+  assert.deepEqual(exerciseGuide({ detailsStatus: "ready", wger: { descriptionEn: "  " } }), { description: "", source: null });
+  assert.deepEqual(exerciseGuide({ detailsStatus: "pending", wger: { descriptionEn: "unreviewed" } }), { description: "", source: null });
+  const source = { descriptionEn: "English guide", descriptionZh: "中文说明" };
+  assert.deepEqual(exerciseGuide({ detailsStatus: "ready", wger: source }), { description: "中文说明", source });
+  assert.deepEqual(exerciseGuide({ detailsStatus: "ready", wger: source }, "en"), { description: "English guide", source });
+});
+
+
+test("barbell and dumbbell shrugs use separately verified English source translations", () => {
+  for (const [id, sourceId, translationId, equipment] of [["shrug", 571, 150, "barbell"], ["dumbbell_shrug", 572, 151, "dumbbell"]]) {
+    const ref = EXERCISE_REFERENCES[id];
+    assert.equal(ref.detailsStatus, "ready");
+    assert.equal(ref.wger.id, sourceId);
+    assert.equal(ref.wger.sourceTranslationId, translationId);
+    assert.equal(ref.wger.sourceLanguage, "en");
+    assert.match(ref.wger.descriptionEn.toLowerCase(), new RegExp(equipment));
+    assert.equal(ref.wger.translationLicenseEn.short_name, "CC-BY-SA 3");
+    assert.equal(ref.wger.translationLicenseEn.author, "wger.de");
+    assert.equal(ref.unverifiedWger.id, 320);
+    assert.deepEqual(ref.instructionsZh, []);
+  }
+  assert.equal(Object.values(EXERCISE_REFERENCES).filter(ref => ref.detailsStatus === "pending").length, 39);
+});
+
+
+test("Portuguese bodyweight split-squat text cannot appear as an exact English dumbbell guide", () => {
+  const ref = EXERCISE_REFERENCES.bulgarian_split_squat;
+  assert.equal(ref.detailsStatus, "pending");
+  assert.deepEqual(exerciseGuide(ref, "en"), { description: "", source: null });
+  assert.deepEqual(ref.instructionsEn, []);
+  assert.deepEqual(ref.instructionsZh, []);
+  assert.equal(ref.unverifiedWger.id, 989);
+  assert.equal(ref.unverifiedWger.sourceTranslationId, 1622);
+  assert.equal(ref.unverifiedWger.sourceLanguage, "pt");
+  assert.match(ref.unverifiedWger.descriptionEn, /^Fique de pé/);
+  assert.ok(ref.gifUrl, "guide quarantine does not alter the separately reviewed animation");
+});
+
+
+test("ordinary pull-up cannot inherit archer pull-up instructions", () => {
+  const ordinary = EXERCISE_REFERENCES.pull_up;
+  const archer = EXERCISE_REFERENCES.archer_pull_up;
+  assert.equal(ordinary.detailsStatus, "pending");
+  assert.deepEqual(exerciseGuide(ordinary, "en"), { description: "", source: null });
+  assert.equal(ordinary.unverifiedWger.id, 1545);
+  assert.equal(ordinary.unverifiedWger.sourceTranslationId, 2494);
+  assert.equal(ordinary.unverifiedWger.sourceNameEn, "Archer Pull Up");
+  assert.equal(archer.detailsStatus, "ready");
+  assert.equal(archer.wger.id, 1545);
+  assert.match(exerciseGuide(archer, "en").description, /archer pull-up/);
+  assert.ok(ordinary.gifUrl);
+  assert.ok(archer.gifUrl);
+});
+
+
+test("generic guides do not claim exact equipment, angle or execution correspondence", () => {
+  for (const id of ["incline_chest_press", "cable_external_rotation", "assisted_close_grip_pull_up", "hammer_curl", "cable_lateral_raise"]) {
+    const ref = EXERCISE_REFERENCES[id];
+    assert.equal(ref.detailsStatus, "ready", id);
+    assert.equal(ref.wger.matchType, "reference", id);
+    assert.equal(ref.wger.confidence, undefined, id);
+    assert.ok(ref.wger.reviewReason, id);
+  }
+  for (const id of ["incline_treadmill_walk", "machine_reverse_fly"]) {
+    const ref = EXERCISE_REFERENCES[id];
+    assert.equal(ref.detailsStatus, "pending", id);
+    assert.deepEqual(exerciseGuide(ref, "en"), { description: "", source: null });
+    assert.equal(ref.unverifiedWger.reviewStatus, "pending_unavailable_source");
+    assert.ok(ref.unverifiedWger.descriptionEn);
+  }
+  assert.notEqual(FALLBACK_EXERCISES.find(x => x.id === "cable_lateral_raise"), FALLBACK_EXERCISES.find(x => x.id === "single_arm_cable_lateral_raise"));
 });
