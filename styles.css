@@ -99,3 +99,5 @@
 .today-plan li { margin-bottom: 8px; line-height: 1.6; }
 
 .ai-review-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; margin-top: 1rem; }
+
+.split-day-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:14px}.split-day-row .preset-card{min-width:0;min-height:78px;padding:12px 10px;border-radius:14px}.split-day-row .preset-card strong{font-size:var(--ps-text-emphasis,16px)}.split-day-row .preset-card small{min-height:0;font-size:var(--ps-text-caption,12px)}
