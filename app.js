@@ -60,7 +60,7 @@ function navigateBack() {
   navigate(parent, {}, false);
   history.replaceState({ screen: parent }, "", `#${parent}`);
 }
-function setScreenHeading(text, canBack = true) { title.textContent = text; backButton.classList.toggle("hidden", !canBack); requestAnimationFrame(() => title.focus({ preventScroll: true })); }
+function setScreenHeading(text, canBack = true) { title.textContent = text; backButton.classList.toggle("hidden", !canBack); $("#homeButton").classList.toggle("hidden", state.screen === "home"); $("#bodyHomeLink").classList.toggle("hidden", !canDirectBodyOs || state.screen !== "home"); requestAnimationFrame(() => title.focus({ preventScroll: true })); }
 async function toggleLocale() { state.locale = state.locale === "zh" ? "en" : "zh"; await DB.set("display-locale", state.locale); render(); }
 function exerciseIcon(exercise) { const reduced = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches; const gif = safeExternalUrl(reduced ? exercise.reference?.thumbnailUrl : exercise.reference?.gifUrl, "dataset"); if (gif) return `<img class="exercise-gif" src="${escapeHTML(gif)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">`; const map = { horizontal_push: "↗", vertical_push: "↑", horizontal_pull: "↙", vertical_pull: "↓", squat: "◇", hinge: "⌁", shoulder_abduction: "↔", shoulder_flexion: "⌃", anti_extension: "□", anti_rotation: "↻", anti_lateral_flexion: "◩", trunk_flexion: "⌒", rotation: "⟳", locomotion: "♥" }; return map[exercise.movementPattern] || "✦"; }
 
@@ -766,6 +766,7 @@ async function copyBodyJson() {
 
 function download(type) { const value = type === "json" ? JSON.stringify(createExport(state.session), null, 2) : toMarkdown(state.session); const blob = new Blob([value], { type: type === "json" ? "application/json;charset=utf-8" : "text/markdown;charset=utf-8" }); const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = `body-os-${state.session.startedAt.slice(0,10)}.${type}`; link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 1000); }
 
+$("#homeButton").onclick = () => { if (canDirectBodyOs) { location.assign("/?view=overview"); } else { navigate("home"); } };
 backButton.onclick = navigateBack; quickFinish.onclick = finishSession; window.addEventListener("popstate", () => { const target = location.hash.slice(1) || "home"; state.screen = target; render(); });
 $("#languageToggle").onclick = toggleLocale;
 window.addEventListener("online", () => { status.textContent = "本机已保存"; if (state.session?.sync.status === "pending") showToast("网络已恢复，可导入 Body.OS"); }); window.addEventListener("offline", () => { status.textContent = "离线记录中"; status.style.color = "var(--orange)"; });
