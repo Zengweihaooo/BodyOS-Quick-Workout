@@ -1,5 +1,6 @@
-import { createCustomExercise, validExercisePhoto, exerciseSearchMatches, EXERCISE_CATALOG_VERSION, exerciseGuide, exerciseCategory, bodyLibraryExercise, formatTrainingDate, canRefreshTrainingScreen, recommendationFreshness, shouldUploadFinishedSession, createSerialTaskQueue, EXERCISE_REFERENCES, FALLBACK_EXERCISES, LOAD_LABELS, PICKER_ALPHABET, adjustRest, applyRecordingMode, buildBodyCandidate, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createExport, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, groupPickerCatalogByLetter, lookupExerciseDefault, mergeExerciseCatalog, nextSetDraft, normalizeSet, pickerLetterTarget, rankPickerExercises, recordingModeForSet, resolveCatalogExerciseId, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise, aggregateLiftPoints, displayLiftKg, liftChartMarkup, liftPointDetailMarkup, lookbackLiftDeltas, progressSeriesForExercise } from "./core.js?v=28";
-import { saveAIChoice, fetchTrainingSnapshot, migrateSupabaseConfig, normalizeSupabaseConfig, refreshSession, sessionIsFresh, signInWithPassword, uploadWorkout } from "./supabase.js?v=11";
+import { WgerLibrary, searchWgerCatalog } from "./wger-library.js?v=1";
+import { createCustomExercise, validExercisePhoto, exerciseSearchMatches, EXERCISE_CATALOG_VERSION, exerciseGuide, exerciseCategory, bodyLibraryExercise, formatTrainingDate, canRefreshTrainingScreen, recommendationFreshness, shouldUploadFinishedSession, createSerialTaskQueue, EXERCISE_REFERENCES, FALLBACK_EXERCISES, LOAD_LABELS, PICKER_ALPHABET, adjustRest, applyRecordingMode, buildBodyCandidate, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createExport, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, groupPickerCatalogByLetter, lookupExerciseDefault, mergeExerciseCatalog, mergeOwnerExerciseCatalog, nextSetDraft, normalizeSet, pickerLetterTarget, rankPickerExercises, recordingModeForSet, resolveCatalogExerciseId, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise, aggregateLiftPoints, displayLiftKg, liftChartMarkup, liftPointDetailMarkup, lookbackLiftDeltas, progressSeriesForExercise } from "./core.js?v=29";
+import { saveAIChoice, fetchTrainingSnapshot, migrateSupabaseConfig, normalizeSupabaseConfig, refreshSession, sessionIsFresh, signInWithPassword, uploadWorkout } from "./supabase.js?v=12";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const app = $("#app"), bottomBar = $("#bottomBar"), backButton = $("#backButton"), title = $("#screenTitle"), status = $("#networkStatus"), quickFinish = $("#quickFinish");
@@ -13,7 +14,7 @@ const RECORDING_MODE_LABELS = Object.freeze({
 });
 const DEFAULT_REST_SECONDS = 120;
 const safeExternalUrl = (value, kind) => { try { const url = new URL(String(value || "")); if (url.protocol !== "https:" || (url.port && url.port !== "443") || url.username || url.password) return ""; if (kind === "dataset") return url.hostname === "raw.githubusercontent.com" && url.pathname.startsWith("/hasaneyldrm/exercises-dataset/") ? url.href : ""; if (kind === "wger") return url.hostname === "wger.de" && (/^\/en\/exercise\/\d+\/?$/.test(url.pathname) || url.pathname.startsWith("/media/exercise-video/")) ? url.href : ""; } catch {} return ""; };
-const enrichExercise = (item) => ({ ...item, reference: EXERCISE_REFERENCES[canonicalExerciseId(item.id)] || null, catalogVersion: EXERCISE_CATALOG_VERSION });
+const enrichExercise = (item) => ({ ...item, reference: EXERCISE_REFERENCES[canonicalExerciseId(item.id)] || item.reference || null, catalogVersion: EXERCISE_CATALOG_VERSION });
 const BASE_EXERCISES = FALLBACK_EXERCISES.map(enrichExercise).filter((item, index, items) => items.findIndex((other) => other.id === item.id) === index);
 const TRAINING_PRESETS = [
   { key: "shoulder_complete", group: "shoulders", title: "肩部组合模板", titleEn: "Shoulder template", note: "4 + 3 + 4 + 3，共 14 组", noteEn: "4 + 3 + 4 + 3, 14 sets total", ids: ["single_arm_cable_lateral_raise","seated_dumbbell_lateral_raise","machine_reverse_fly","face_pull"], sets: { single_arm_cable_lateral_raise: 4, seated_dumbbell_lateral_raise: 3, machine_reverse_fly: 4, face_pull: 3 } },
@@ -27,6 +28,9 @@ const TRAINING_PRESETS = [
   { key: "back_complete", group: "back", title: "背部完整", note: "垂直拉 · 水平拉 · 肩伸展", ids: ["assisted_close_grip_pull_up","neutral_grip_lat_pulldown","machine_row","straight_arm_pulldown"] },
 ];
 let state = { session: null, exercises: BASE_EXERCISES, screen: "home", draft: null, editingSetIndex: -1, selectedWatch: "", watchCandidates: [], importing: false, resetArmed: false, locale: "zh", pickerPresetKey: "", historyWorkoutId: "", historyMode: "workouts", historyExerciseId: "", liftUnit: "kg", liftGrain: "session", liftScrubIndex: -1, liftSheetOpen: false, training: { snapshot: null, busy: false, error: "" }, cloud: { config: null, session: null, busy: false } };
+const fullWgerLibrary = new WgerLibrary();
+let wgerPickerMode = "common", pickerPaint = 0;
+const pickerSearchState = {query:"", filter:"", offset:0};
 let customPhotoDraft = [], customEditingId = "";
 let tickTimer = null, toastTimer = null, resetArmTimer = null, trainingSnapshotTask = null, automaticUploadTask = null;
 const serializePendingQueueWrite = createSerialTaskQueue();
@@ -241,8 +245,51 @@ function bindPickerAlphabet(az, hud, available) {
 
 function renderPicker() {
   setScreenHeading(localeText("选择动作", "Choose exercise"));
-  app.innerHTML = `<section class="preset-guide" id="presetGuide"></section><div class="picker-actions"><input class="search" id="search" type="search" placeholder="${localeText("搜索动作、器械或英文名", "Search exercise, equipment or Chinese name")}" autocomplete="off" aria-label="搜索动作"><button class="custom-action" id="addCustom">＋ ${localeText("自定义", "Custom")}</button></div><section class="category-guide"><div class="section-head"><h2>${localeText("按部位或完整组合选择", "Browse by body part or preset")}</h2><span class="label">${localeText("休息日自由安排", "Flexible rest days")}</span></div><div class="chip-row"><button class="chip active" data-filter="">${localeText("全部", "All")}</button><button class="chip" data-filter="chest">${localeText("胸", "Chest")}</button><button class="chip" data-filter="back">${localeText("背", "Back")}</button><button class="chip" data-filter="shoulders">${localeText("肩", "Shoulders")}</button><button class="chip" data-filter="core">${localeText("核心", "Core")}</button><button class="chip" data-filter="cardio">${localeText("有氧", "Cardio")}</button><button class="chip" data-filter="arms">${localeText("手臂", "Arms")}</button><button class="chip" data-filter="legs">${localeText("腿", "Legs")}</button></div></section><div class="picker-list-shell"><div class="card-list" id="exerciseList"></div><nav class="picker-az hidden" id="pickerAz" aria-label="${localeText("字母索引", "A to Z index")}"></nav><div class="picker-az-hud hidden" id="pickerAzHud" aria-hidden="true"></div></div><aside class="source-policy"><strong>${localeText("来源与隐私", "Sources & privacy")}</strong><span>${localeText("动图仅远程引用 exercise dataset；动作详情按来源显示。自定义器材照片保存在此设备；训练记录在登录后按云端同步设置上传。", "Animations are remote exercise-dataset references; guides come only from wger. Workout data stays in this browser's IndexedDB unless you export it.")}</span></aside>`;
+  app.innerHTML = `<section class="preset-guide" id="presetGuide"></section><div class="picker-actions"><input class="search" id="search" type="search" placeholder="${localeText("搜索动作、器械或英文名", "Search exercise, equipment or Chinese name")}" autocomplete="off" aria-label="搜索动作"><button class="custom-action" id="addCustom">＋ ${localeText("自定义", "Custom")}</button></div><div class="chip-row library-tiers" aria-label="动作库范围"><button class="chip" id="tierCommon">常用优先</button><button class="chip" id="tierWger">wger 全库</button></div><section class="category-guide"><div class="section-head"><h2>${localeText("按部位或完整组合选择", "Browse by body part or preset")}</h2><span class="label">${localeText("休息日自由安排", "Flexible rest days")}</span></div><div class="chip-row"><button class="chip active" data-filter="">${localeText("全部", "All")}</button><button class="chip" data-filter="chest">${localeText("胸", "Chest")}</button><button class="chip" data-filter="back">${localeText("背", "Back")}</button><button class="chip" data-filter="shoulders">${localeText("肩", "Shoulders")}</button><button class="chip" data-filter="core">${localeText("核心", "Core")}</button><button class="chip" data-filter="cardio">${localeText("有氧", "Cardio")}</button><button class="chip" data-filter="arms">${localeText("手臂", "Arms")}</button><button class="chip" data-filter="legs">${localeText("腿", "Legs")}</button></div></section><div class="picker-list-shell"><div class="card-list" id="exerciseList"></div><nav class="picker-az hidden" id="pickerAz" aria-label="${localeText("字母索引", "A to Z index")}"></nav><div class="picker-az-hud hidden" id="pickerAzHud" aria-hidden="true"></div></div><section id="wgerResults" class="section wger-results" aria-label="wger 全库搜索结果"></section><aside class="source-policy"><strong>${localeText("来源与隐私", "Sources & privacy")}</strong><span>${localeText("动图仅远程引用 exercise dataset；动作详情按来源显示。自定义器材照片保存在此设备；训练记录在登录后按云端同步设置上传。", "Animations are remote exercise-dataset references; guides come only from wger. Workout data stays in this browser's IndexedDB unless you export it.")}</span></aside>`;
     const list = $("#exerciseList"), search = $("#search"), guide = $("#presetGuide"), az = $("#pickerAz"), hud = $("#pickerAzHud");
+  const wgerRoot = $("#wgerResults");
+  search.value = pickerSearchState.query;
+  let wgerOffset = pickerSearchState.offset, wgerDebounce = null, selectingWger = false;
+  const paintWger = async (offset = pickerSearchState.offset) => {
+    const paint = ++pickerPaint, term = search.value.trim();
+    $("#tierCommon").classList.toggle("active", wgerPickerMode === "common");
+    $("#tierWger").classList.toggle("active", wgerPickerMode === "all");
+    if (!term && wgerPickerMode !== "all") {
+      wgerRoot.innerHTML = `<div class="section-head"><h2>wger 完整动作库</h2><button type="button" id="browseWgerAll">浏览全库</button></div><p class="muted">输入中文或英文即可搜索完整目录；常用和自定义动作优先显示。说明与媒体按需读取。</p>`;
+      $("#browseWgerAll").onclick = () => { wgerPickerMode = "all"; update(); };
+      return;
+    }
+    wgerRoot.innerHTML = '<p role="status">正在读取动作名称索引…</p>';
+    try {
+      const catalog = await fullWgerLibrary.load();
+      if (paint !== pickerPaint || !wgerRoot.isConnected) return;
+      const page = searchWgerCatalog(catalog.items, term, {category: term ? "" : filter, offset});
+      wgerOffset = offset; pickerSearchState.offset = offset;
+      wgerRoot.innerHTML = `<div class="section-head"><h2>wger 全库 · ${catalog.count} 项</h2><span class="label">${page.total} 项匹配 · ${page.items.length ? offset + 1 : 0}–${offset + page.items.length}</span></div>
+      <p class="muted">保留英文原名；中文检索名包含 wger 中文和辅助译名。每次最多显示 24 项，点选后再加载说明。</p>
+      <div class="card-list">${page.items.map(item => `<button type="button" class="exercise-card" data-wger-exercise="${item.id}"><span class="exercise-icon">↗</span><span>${exerciseLabel({name:item.zh,canonicalNameEn:item.en})}<small>${escapeHTML(item.equipment || "wger 动作")} · ${item.zhSource === "wger" ? "官方中文" : "中文检索译名"}</small></span><span class="chevron">›</span></button>`).join("") || '<p class="muted">没有找到匹配动作。可换成英文关键词，或使用“＋自定义”保留器材照片。</p>'}</div>
+      <div class="wger-pagination"><button type="button" id="wgerPrevious" ${offset ? "" : "disabled"}>上一页</button><button type="button" id="wgerNext" ${page.nextOffset == null ? "disabled" : ""}>下一页</button></div>`;
+      $("#wgerPrevious").onclick = () => paintWger(Math.max(0, wgerOffset - 24)).then(() => wgerRoot.scrollIntoView({block:"start"}));
+      $("#wgerNext").onclick = () => paintWger(page.nextOffset ?? wgerOffset).then(() => wgerRoot.scrollIntoView({block:"start"}));
+      wgerRoot.querySelectorAll("[data-wger-exercise]").forEach(button => button.onclick = async () => {
+        if (selectingWger) return;
+        selectingWger = true; button.disabled = true;
+        const original = button.innerHTML; button.innerHTML = "正在读取动作详情…";
+        try {
+          const item = await fullWgerLibrary.select(button.dataset.wgerExercise);
+          if (!wgerRoot.isConnected || paint !== pickerPaint) return;
+          const next = [...state.exercises.filter(x => x.id !== item.id), enrichExercise(item)];
+          await DB.set("exercise-library", next);
+          state.exercises = next; openExercise(item.id);
+        } catch (error) { if (wgerRoot.isConnected) { button.innerHTML = original; button.disabled = false; showToast(error.message || "动作读取失败，可重试"); } }
+        finally { selectingWger = false; }
+      });
+    } catch (error) {
+      if (paint !== pickerPaint || !wgerRoot.isConnected) return;
+      wgerRoot.innerHTML = `<p role="status">${escapeHTML(error.message || "完整目录暂时不可用")}</p><button id="wgerRetry" type="button">重新读取全库</button>`;
+      $("#wgerRetry").onclick = () => paintWger(offset);
+    }
+  };
   const today = state.training.snapshot?.today;
   const remotePreset = today?.exercises?.length ? { key: "bodyos_today", group: "", title: today.title || "Body.OS 下次训练", titleEn: today.title || "Body.OS next workout", note: `${today.exercises.reduce((sum, item) => sum + Number(item.sets || 0), 0)} 组 · ${today.readinessLabel || "已同步"}`, ids: today.exercises.map((item) => canonicalExerciseId(item.exerciseId)), sets: Object.fromEntries(today.exercises.map((item) => [canonicalExerciseId(item.exerciseId), Number(item.sets || 0)])) } : null;
   const dayPresets = (state.training.snapshot?.dayPlans || []).map((day) => ({
@@ -252,18 +299,22 @@ function renderPicker() {
     sets: Object.fromEntries(day.exercises.map((item) => [canonicalExerciseId(item.exerciseId), Number(item.sets || 0)])), day,
   }));
   const presets = [...dayPresets, ...(remotePreset && !dayPresets.length ? [remotePreset] : []), ...TRAINING_PRESETS];
-  let filter = "", activePresetKey = state.pickerPresetKey || "";
+  let filter = pickerSearchState.filter, activePresetKey = state.pickerPresetKey || "";
   const update = () => {
+    document.querySelectorAll("[data-filter]").forEach(chip => chip.classList.toggle("active", chip.dataset.filter === filter));
     const relevant = presets.filter((preset) => preset.key === "bodyos_today" || !filter || preset.group === filter);
     const dayCards = dayPresets.map((preset) => `<button type="button" class="preset-card ${activePresetKey === preset.key || activePresetKey === "bodyos_today" && preset.day.rotationKey === today?.rotationKey ? "active" : ""}" data-preset="${preset.key}"><strong>${escapeHTML(preset.title)}</strong><small>${escapeHTML(preset.note)}</small></button>`).join("");
     const generic = relevant.filter((preset) => !preset.day);
     guide.innerHTML = (dayCards ? `<div class="split-day-row" aria-label="正式胸背腿计划">${dayCards}</div>` : "") + (generic.length ? `<div class="section-head"><h2>${localeText("动态推荐与通用模板", "Recommendations & templates")}</h2><span class="label">${localeText("点击后只看该组合动作", "Tap to filter the preset")}</span></div><div class="preset-row">${generic.map((preset) => `<button class="preset-card ${activePresetKey === preset.key ? "active" : ""}" data-preset="${preset.key}"><strong>${localeText(preset.title, preset.titleEn || preset.title)}</strong><small>${localeText(preset.note, preset.noteEn || preset.note)}</small><em>${preset.ids.length} ${localeText("个动作", "exercises")}</em></button>`).join("")}</div>` : "");
-    guide.querySelectorAll("[data-preset]").forEach((button) => button.onclick = () => { const preset = presets.find((item) => item.key === button.dataset.preset); activePresetKey = activePresetKey === preset?.key ? "" : (preset?.key || ""); state.pickerPresetKey = activePresetKey; if (preset?.group) { filter = preset.group; document.querySelectorAll("[data-filter]").forEach((chip) => chip.classList.toggle("active", chip.dataset.filter === filter)); } update(); });
+    guide.querySelectorAll("[data-preset]").forEach((button) => button.onclick = () => { const preset = presets.find((item) => item.key === button.dataset.preset); activePresetKey = activePresetKey === preset?.key ? "" : (preset?.key || ""); state.pickerPresetKey = activePresetKey; if (preset?.group) { filter = preset.group; pickerSearchState.filter = filter; pickerSearchState.offset = 0; document.querySelectorAll("[data-filter]").forEach((chip) => chip.classList.toggle("active", chip.dataset.filter === filter)); } update(); });
     const preset = presets.find((item) => item.key === activePresetKey) || (activePresetKey === "bodyos_today" ? dayPresets.find((item) => item.day.rotationKey === today?.rotationKey) : null), allowedIds = preset ? new Set(preset.ids) : null;
     const term = search.value.trim().toLowerCase(), words = term.split(/\s+/).filter(Boolean);
     const matches = state.exercises.filter((x) => (term || (allowedIds ? allowedIds.has(x.id) : (!filter || exerciseCategory(x) === filter))) && exerciseSearchMatches(x, term));
-    if (!matches.length) {
-      list.innerHTML = `<div class="empty">这个分类下没有找到动作，试试搜索或“全部”。</div>`;
+    guide.hidden = Boolean(term) || wgerPickerMode === "all";
+    if (wgerPickerMode === "all" && !term) {
+      list.innerHTML = ""; az?.classList.add("hidden");
+    } else if (!matches.length) {
+      list.innerHTML = `<div class="empty">常用库暂无匹配，下面继续搜索 wger 完整动作库。</div>`;
       az?.classList.add("hidden");
     } else if (preset && !term) {
       matches.sort((left, right) => preset.ids.indexOf(left.id) - preset.ids.indexOf(right.id));
@@ -274,17 +325,23 @@ function renderPicker() {
       const history = ranked.filter((item) => item.pickerPass === "history");
       const groups = groupPickerCatalogByLetter(ranked.filter((item) => item.pickerPass === "catalog"));
       const available = new Set(groups.map((group) => group.letter));
-      list.innerHTML = `${history.length ? `<div class="picker-section-label">${localeText("常练动作 · 按记录次数", "Logged · most sessions first")}</div>${history.map((exercise) => exerciseCard(exercise, 0)).join("")}` : ""}<div class="picker-section-label">${localeText("全部动作 · A–Z", "All exercises · A–Z")}</div>${groups.map((group) => `<div class="picker-letter-head" id="picker-letter-${group.letter === "#" ? "other" : group.letter}" data-picker-letter="${group.letter}">${group.letter}</div>${group.exercises.map((exercise) => exerciseCard(exercise, 0)).join("")}`).join("")}`;
+      list.innerHTML = `${history.length ? `<div class="picker-section-label">${localeText("常练动作 · 按记录次数", "Logged · most sessions first")}</div>${history.map((exercise) => exerciseCard(exercise, 0)).join("")}` : ""}<div class="picker-section-label">${localeText("常用与自选动作 · A–Z", "Preferred & selected · A–Z")}</div>${groups.map((group) => `<div class="picker-letter-head" id="picker-letter-${group.letter === "#" ? "other" : group.letter}" data-picker-letter="${group.letter}">${group.letter}</div>${group.exercises.map((exercise) => exerciseCard(exercise, 0)).join("")}`).join("")}`;
       az.classList.remove("hidden");
       az.innerHTML = PICKER_ALPHABET.map((letter) => `<button type="button" data-az="${letter}" class="${available.has(letter) ? "" : "empty"}" aria-label="${letter}">${letter}</button>`).join("");
       bindPickerAlphabet(az, hud, available);
     }
     bindExerciseCards(); bindSessionManagement();
+    clearTimeout(wgerDebounce);
+    ++pickerPaint;
+    if (term) wgerDebounce = setTimeout(() => paintWger(), 180);
+    else paintWger();
   };
   bottomBar.innerHTML = `<button class="secondary" id="pickerBack">${localeText("返回训练", "Back to workout")}</button><button class="secondary" id="pickerCloud">${localeText("云端同步", "Cloud sync")}</button>`;
   $("#pickerBack").onclick = navigateBack;
   $("#pickerCloud").onclick = () => navigate("cloud");
-  search.oninput = update; document.querySelectorAll("[data-filter]").forEach((chip) => chip.onclick = () => { document.querySelectorAll("[data-filter]").forEach((x) => x.classList.remove("active")); chip.classList.add("active"); filter = chip.dataset.filter; activePresetKey = ""; state.pickerPresetKey = ""; update(); }); $("#addCustom").onclick = () => { customEditingId = ""; customPhotoDraft = []; navigate("custom"); }; list.onclick = (event) => { const button = event.target.closest("[data-exercise]"); if (button) openExercise(button.dataset.exercise); }; update();
+  $("#tierCommon").onclick = () => { wgerPickerMode = "common"; update(); };
+  $("#tierWger").onclick = () => { wgerPickerMode = "all"; update(); };
+  search.oninput = () => { pickerSearchState.query = search.value; pickerSearchState.offset = 0; update(); }; document.querySelectorAll("[data-filter]").forEach((chip) => chip.onclick = () => { document.querySelectorAll("[data-filter]").forEach((x) => x.classList.remove("active")); chip.classList.add("active"); filter = chip.dataset.filter; pickerSearchState.filter = filter; pickerSearchState.offset = 0; activePresetKey = ""; state.pickerPresetKey = ""; update(); }); $("#addCustom").onclick = () => { customEditingId = ""; customPhotoDraft = []; navigate("custom"); }; list.onclick = (event) => { const button = event.target.closest("[data-exercise]"); if (button) openExercise(button.dataset.exercise); }; update();
 }
 
 
@@ -355,6 +412,15 @@ function renderCustomExercise() {
 }
 
 function openExercise(id) {
+  if (/^wger_[0-9a-f]{32}$/.test(id) && !state.exercises.find(x => x.id === id)?.reference) {
+    const initialScreen = state.screen;
+    fullWgerLibrary.select(id).then(async item => {
+      const next = [...state.exercises.filter(x => x.id !== id), enrichExercise(item)];
+      await DB.set("exercise-library", next); state.exercises = next;
+      if (state.screen === initialScreen) openExercise(id);
+    }).catch(error => showToast(error.message || "动作详情读取失败，可重新选择"));
+    return;
+  }
   const chosenDay = (state.training.snapshot?.dayPlans || []).find((day) => state.pickerPresetKey === `bodyos_day_${day.rotationKey}`);
   if (chosenDay) { state.session.recommendationKey = chosenDay.key; persist(); }
   if (state.pickerPresetKey === "bodyos_today" && (state.training.snapshot?.recommendation?.rotationKey || state.training.snapshot?.recommendation?.key)) {
@@ -367,6 +433,7 @@ function openExercise(id) {
   state.editingSetIndex = -1; state.session.currentExerciseId = id; state.draft = previous
     ? nextSetDraft({ ...previous, photos: exercise.photos, reference: exercise.reference, restSeconds: defaultRest(previous) })
     : normalizeSet({ ...draftFromExerciseDefault(exercise, cached), photos: exercise.photos, reference: exercise.reference, ...(!cached ? grip : {}) });
+  state.draft.needsLoadModeConfirmation = /^wger_[0-9a-f]{32}$/.test(id) && !previous && !cached;
   navigate("entry");
   refreshTrainingSnapshotForExercise();
 }
@@ -387,19 +454,19 @@ function renderEntry() {
   const prescription = state.training.snapshot?.today?.exercises?.find((item) => canonicalExerciseId(item.exerciseId) === canonicalExerciseId(d.exerciseId));
   const editing = Number.isInteger(state.editingSetIndex) && state.editingSetIndex >= 0;
   const unit = d.weightUnit === "lb" ? "lb" : "kg", step = unit === "lb" ? 5 : 2.5;
-  const reference = d.reference || {}, { description, source: guideSource } = exerciseGuide(reference, state.locale), wgerUrl = safeExternalUrl(guideSource?.videoUrl || guideSource?.pageUrl, "wger"), license = guideSource?.translationLicenseZh?.short_name || guideSource?.translationLicenseEn?.short_name || guideSource?.license?.short_name || "";
-  const referencePanel = (reference.datasetId || reference.wger || reference.referenceNote) ? `<details class="exercise-reference-panel"><summary>${localeText("动作资料与来源", "Exercise guide & sources")}</summary><div>${description ? `<p>${escapeHTML(description)}</p>` : `<p class="muted">${localeText("动作说明待核对；不显示已发现错配的资料。", "Guide verification is pending; mismatched references are not displayed.")}</p>`}<small>${reference.datasetId ? `exercise dataset ${escapeHTML(reference.datasetId)} · ` : ""}${localeText("详情", "Guide")}：${guideSource ? `wger ${guideSource.matchType === "exact" ? localeText("已匹配", "matched") : localeText("通用参考", "reference")}` : localeText("待核对", "pending verification")}${license ? ` · ${escapeHTML(license)}` : ""}${guideSource?.author ? ` · ${escapeHTML(guideSource.author)}` : ""}</small>${wgerUrl ? `<a href="${escapeHTML(wgerUrl)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">${localeText("在 wger 查看", "View on wger")} ↗</a>` : ""}</div></details>` : "";
-  const recordingMode = recordingModeForSet(d);
-  setScreenHeading(editing ? localeText("编辑历史组", "Edit saved set") : (state.locale === "en" ? (d.canonicalNameEn || d.exerciseName) : d.exerciseName)); app.innerHTML = `${editing ? `<section class="section edit-exercise-field"><div class="field"><label for="editExercise">${localeText("修改动作", "Change exercise")}</label><select id="editExercise">${state.exercises.map((exercise) => `<option value="${escapeHTML(exercise.id)}" ${exercise.id === d.exerciseId ? "selected" : ""}>${escapeHTML(state.locale === "en" ? (exercise.canonicalNameEn || exercise.name) : exercise.name)}</option>`).join("")}</select></div></section>` : ""}<section class="hero"><div class="entry-title"><span class="exercise-icon">${exerciseIcon(d)}</span><div><div class="label">${editing ? localeText("正在修改已保存记录", "Editing saved record") : localeText(`第 ${count + 1} 组`, `Set ${count + 1}`)}</div>${exerciseLabel(d)}<div class="muted">${escapeHTML(d.equipment || localeText("标准动作", "Standard"))}</div></div></div><div class="semantic"><span>${localeText("本组记录方式", "Set recording mode")}</span><select id="recordingMode" aria-label="本组记录方式">${Object.entries(RECORDING_MODE_LABELS).map(([value,label]) => `<option value="${value}" ${recordingMode === value ? "selected" : ""}>${label}</option>`).join("")}</select></div></section>${referencePanel}${(d.photos || []).filter(validExercisePhoto).length ? `<section class="section"><h2>器材参考照片</h2><div class="custom-photo-grid">${d.photos.filter(validExercisePhoto).map(photo => `<img src="${escapeHTML(photo)}" alt="器材参考照片">`).join("")}</div></section>` : ""}${state.exercises.find(x => x.id === d.exerciseId)?.isCustom ? `<button class="secondary edit-custom" id="editCustomDetails">编辑动作名称与照片</button>` : ""}
+  const reference = d.reference || {}, { description, source: guideSource } = exerciseGuide(reference, state.locale), wgerUrl = safeExternalUrl(guideSource?.videoUrl || guideSource?.pageUrl || reference.wger?.pageUrl, "wger"), license = guideSource?.translationLicenseZh?.short_name || guideSource?.translationLicenseEn?.short_name || guideSource?.license?.short_name || "";
+  const referencePanel = (reference.datasetId || reference.wger || reference.referenceNote) ? `<details class="exercise-reference-panel"><summary>${localeText("动作资料与来源", "Exercise guide & sources")}</summary><div>${description ? `<p>${escapeHTML(description)}</p>` : `<p class="muted">${reference.wger ? localeText("wger 尚未提供文字说明，可打开来源页核对。", "No description is available; open the source page.") : localeText("动作说明待核对；不显示已发现错配的资料。", "Guide verification is pending; mismatched references are not displayed.")}</p>`}<small>${reference.datasetId ? `exercise dataset ${escapeHTML(reference.datasetId)} · ` : ""}${localeText("详情", "Guide")}：${guideSource ? `wger ${guideSource.matchType === "exact" ? localeText("已匹配", "matched") : localeText("通用参考", "reference")}` : localeText("待核对", "pending verification")}${license ? ` · ${escapeHTML(license)}` : ""}${guideSource?.author ? ` · ${escapeHTML(guideSource.author)}` : ""}</small>${wgerUrl ? `<a href="${escapeHTML(wgerUrl)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">${localeText("在 wger 查看", "View on wger")} ↗</a>` : ""}</div></details>` : "";
+  const recordingMode = d.needsLoadModeConfirmation ? "" : recordingModeForSet(d);
+  setScreenHeading(editing ? localeText("编辑历史组", "Edit saved set") : (state.locale === "en" ? (d.canonicalNameEn || d.exerciseName) : d.exerciseName)); app.innerHTML = `${editing ? `<section class="section edit-exercise-field"><div class="field"><label for="editExercise">${localeText("修改动作", "Change exercise")}</label><select id="editExercise">${state.exercises.map((exercise) => `<option value="${escapeHTML(exercise.id)}" ${exercise.id === d.exerciseId ? "selected" : ""}>${escapeHTML(state.locale === "en" ? (exercise.canonicalNameEn || exercise.name) : exercise.name)}</option>`).join("")}</select></div></section>` : ""}<section class="hero"><div class="entry-title"><span class="exercise-icon">${exerciseIcon(d)}</span><div><div class="label">${editing ? localeText("正在修改已保存记录", "Editing saved record") : localeText(`第 ${count + 1} 组`, `Set ${count + 1}`)}</div>${exerciseLabel(d)}<div class="muted">${escapeHTML(d.equipment || localeText("标准动作", "Standard"))}</div></div></div><div class="semantic"><span>${localeText("本组记录方式", "Set recording mode")}</span><select id="recordingMode" aria-label="本组记录方式">${d.needsLoadModeConfirmation ? '<option value="" selected disabled>请确认总重量或单侧重量</option>' : ""}${Object.entries(RECORDING_MODE_LABELS).map(([value,label]) => `<option value="${value}" ${recordingMode === value ? "selected" : ""}>${label}</option>`).join("")}</select></div></section>${referencePanel}${(d.photos || []).filter(validExercisePhoto).length ? `<section class="section"><h2>器材参考照片</h2><div class="custom-photo-grid">${d.photos.filter(validExercisePhoto).map(photo => `<img src="${escapeHTML(photo)}" alt="器材参考照片">`).join("")}</div></section>` : ""}${state.exercises.find(x => x.id === d.exerciseId)?.isCustom ? `<button class="secondary edit-custom" id="editCustomDetails">编辑动作名称与照片</button>` : ""}
   <div class="session-timer-strip"><span><small>训练计时</small><strong data-elapsed>${formatClock(elapsed())}</strong></span><button id="entryTimerToggle">${state.session.timer.running ? "暂停" : "开始"}</button></div>
   ${restMarkup()}
   ${last ? `<div class="last-set">${localeText("上一组", "Previous set")}：${last.weightValue}${last.weightUnit} × ${last.reps} ${localeText("次", "reps")}${last.rir != null ? ` · RIR ${last.rir}` : ""}</div>` : cached ? `<div class="last-set cached-default"><strong>已带入最近训练参数</strong><span>${formatTrainingDate(cached.usedAt, {month:"numeric",day:"numeric"})} · ${cached.setCount} 组 · 最近最大 ${cached.weightValue}${cached.weightUnit} × ${cached.reps}</span></div>` : ""}${prescription ? `<div class="prescription-note">下次建议：${prescription.sets || "—"} 组${prescription.minReps || prescription.maxReps ? ` · ${prescription.minReps || "?"}–${prescription.maxReps || "?"} 次` : ""}${prescription.targetRir != null ? ` · 保留 ${escapeHTML(Array.isArray(prescription.targetRir) ? prescription.targetRir.join("–") : prescription.targetRir)} 次余力` : prescription.targetRpe ? ` · RPE ${prescription.targetRpe}` : ""}</div>` : ""}${liftProgressPanel(d.exerciseId)}${setPreviewMarkup(count, last)}
-  <div class="step-grid"><div class="stepper"><div class="row"><div class="label">${RECORDING_MODE_LABELS[recordingMode]}</div><div class="unit-switch" aria-label="重量单位"><button class="${unit === "kg" ? "active" : ""}" data-unit="kg">kg</button><button class="${unit === "lb" ? "active" : ""}" data-unit="lb">lb <small>磅</small></button></div></div><div class="stepper-controls"><button data-step="weight" data-delta="-${step}" aria-label="减少重量">−</button><input id="weight" class="number-input" type="number" inputmode="decimal" min="0" step="${step}" value="${d.weightValue}" aria-label="重量，点击数字可直接输入"><button data-step="weight" data-delta="${step}" aria-label="增加重量">＋</button></div><div class="direct-input-hint">点击数字可直接输入 · ${unit === "lb" ? "当前单位：磅" : "可切换 lb（磅）"}${d.sideCount === 2 && ["per_limb","per_side"].includes(d.loadMode) ? ` · 总负荷 ${d.weightValue * 2} ${unit}` : ""}</div></div><div class="stepper"><div class="label">次数</div><div class="stepper-controls"><button data-step="reps" data-delta="-1" aria-label="减少次数">−</button><input id="reps" class="number-input" type="number" inputmode="numeric" min="0" step="1" value="${d.reps}" aria-label="次数，点击数字可直接输入"><button data-step="reps" data-delta="1" aria-label="增加次数">＋</button></div><div class="direct-input-hint">点击数字可直接输入</div></div></div>
+  <div class="step-grid"><div class="stepper"><div class="row"><div class="label">${RECORDING_MODE_LABELS[recordingMode] || "请先确认重量口径"}</div><div class="unit-switch" aria-label="重量单位"><button class="${unit === "kg" ? "active" : ""}" data-unit="kg">kg</button><button class="${unit === "lb" ? "active" : ""}" data-unit="lb">lb <small>磅</small></button></div></div><div class="stepper-controls"><button data-step="weight" data-delta="-${step}" aria-label="减少重量">−</button><input id="weight" class="number-input" type="number" inputmode="decimal" min="0" step="${step}" value="${d.weightValue}" aria-label="重量，点击数字可直接输入"><button data-step="weight" data-delta="${step}" aria-label="增加重量">＋</button></div><div class="direct-input-hint">点击数字可直接输入 · ${unit === "lb" ? "当前单位：磅" : "可切换 lb（磅）"}${d.sideCount === 2 && ["per_limb","per_side"].includes(d.loadMode) ? ` · 总负荷 ${d.weightValue * 2} ${unit}` : ""}</div></div><div class="stepper"><div class="label">次数</div><div class="stepper-controls"><button data-step="reps" data-delta="-1" aria-label="减少次数">−</button><input id="reps" class="number-input" type="number" inputmode="numeric" min="0" step="1" value="${d.reps}" aria-label="次数，点击数字可直接输入"><button data-step="reps" data-delta="1" aria-label="增加次数">＋</button></div><div class="direct-input-hint">点击数字可直接输入</div></div></div>
   <section class="section"><div class="section-head"><h2>RIR</h2><span class="label">还能完成几次</span></div><div class="rir-grid">${[null,0,1,2,3,4,5].map((v) => `<button class="chip ${d.rir === v ? "active" : ""}" data-rir="${v == null ? "" : v}">${v == null ? "未记" : v}</button>`).join("")}</div></section>
   ${gripMarkup(d)}
   <details class="exercise-history"><summary>${localeText(`本动作已完成 ${count} 组`, `${count} completed sets for this exercise`)}</summary><div class="exercise-history-body">${count ? state.session.sets.filter((set) => set.exerciseId === d.exerciseId).map((set, index) => `<div><span>${index + 1}</span><strong>${set.weightValue}${set.weightUnit} × ${set.reps}</strong><small>${set.rir != null ? `RIR ${set.rir}` : ""}</small></div>`).join("") : `<small>${localeText("保存第一组后会显示在这里。", "Save the first set to see it here.")}</small>`}</div></details>
   <details class="detail-panel"><summary>扩展数据与备注</summary><div class="detail-body"><div class="field"><label for="rest">目标休息（秒，保存后自动开始）</label><input id="rest" type="number" inputmode="numeric" min="0" max="7200" value="${d.restSeconds ?? DEFAULT_REST_SECONDS}"></div><div class="field"><label for="rpe">RPE（1–10）</label><input id="rpe" type="number" inputmode="decimal" min="1" max="10" step="0.5" value="${d.rpe ?? ""}"></div><div class="field"><label for="rer">RER（0.5–2）</label><input id="rer" type="number" inputmode="decimal" min="0.5" max="2" step="0.1" value="${d.rer ?? ""}"></div><div class="field"><label for="notes">备注 / 疼痛反馈</label><textarea id="notes" maxlength="1000" placeholder="例如：左肩刺痛，动作控制良好">${escapeHTML(d.notes)}</textarea></div></div></details>`;
-  bottomBar.innerHTML = `<button class="secondary" id="switchExercise">${editing ? localeText("取消", "Cancel") : localeText("切换动作", "Switch exercise")}</button><button class="primary" id="save">${editing ? localeText("保存修改", "Save changes") : last ? `复用并保存第 ${count + 1} 组` : "保存第 1 组"}</button>`;
+  bottomBar.innerHTML = `<button class="secondary" id="switchExercise">${editing ? localeText("取消", "Cancel") : localeText("切换动作", "Switch exercise")}</button><button class="primary" id="save" ${d.needsLoadModeConfirmation ? "disabled" : ""}>${editing ? localeText("保存修改", "Save changes") : last ? `复用并保存第 ${count + 1} 组` : "保存第 1 组"}</button>`;
   bindEntry();
   const panel = document.querySelector(".lift-progress");
   if (panel) bindLiftProgressControls(panel, d.exerciseId);
@@ -409,7 +476,7 @@ function renderEntry() {
 function restMarkup() { const rest = state.session.rest; if (!rest) return ""; return `<section class="rest-card"><div class="row"><div><div class="label">休息计时 · ${rest.running ? "进行中" : "已暂停"}</div><div class="rest-time" data-rest>${formatClock(restRemainingSeconds(rest))}</div></div><span>${rest.running ? "自动倒计时" : "已暂停"}</span></div><div class="rest-actions"><button id="restSkip">跳过</button><button id="restSubtract">−30 秒</button><button id="restAdd">+30 秒</button><button id="restToggle">${rest.running ? "暂停" : "▶ 开始"}</button></div></section>`; }
 function bindEntry() {
   $("#entryTimerToggle")?.addEventListener("click", toggleSessionTimer);
-  $("#recordingMode").onchange = (e) => { state.draft = applyRecordingMode(state.draft, e.target.value); renderEntry(); };
+  $("#recordingMode").onchange = (e) => { state.draft = applyRecordingMode(state.draft, e.target.value); state.draft.needsLoadModeConfirmation = false; renderEntry(); };
   $("#editCustomDetails")?.addEventListener("click", () => { const item = state.exercises.find(x => x.id === state.draft?.exerciseId); customEditingId = item.id; customPhotoDraft = [...(item.photos || [])]; navigate("custom"); });
   $("#editExercise")?.addEventListener("change", (event) => { const exercise = state.exercises.find((item) => item.id === event.target.value); if (!exercise) return; const unilateral = exercise.loadMode === "per_limb" && exercise.executionMode === "unilateral"; state.draft = normalizeSet({ ...state.draft, exerciseId: exercise.id, exerciseName: exercise.name, canonicalNameEn: exercise.canonicalNameEn, equipment: exercise.equipment, movementPattern: exercise.movementPattern, loadMode: exercise.loadMode, executionMode: exercise.executionMode, sideCount: exercise.sideCount, side: unilateral ? "right" : "both", reference: exercise.reference, ...inferredGrip(exercise) }); renderEntry(); });
   document.querySelectorAll("[data-step]").forEach((button) => button.onclick = () => { const input = button.dataset.step === "weight" ? $("#weight") : $("#reps"); input.value = Math.max(0, Number(input.value || 0) + Number(button.dataset.delta)); input.dispatchEvent(new Event("input")); });
@@ -433,6 +500,7 @@ function bindEntry() {
 }
 
 async function saveSet() {
+  if (state.draft?.needsLoadModeConfirmation) { $("#recordingMode")?.focus(); return showToast("先确认本组记录的是总重量还是单侧重量"); }
   const extras = { restSeconds: Number($("#rest")?.value ?? state.draft.restSeconds ?? DEFAULT_REST_SECONDS), rpe: $("#rpe")?.value ?? state.draft.rpe, rer: $("#rer")?.value ?? state.draft.rer, notes: $("#notes")?.value ?? state.draft.notes };
   const original = state.session.sets[state.editingSetIndex];
   const set = normalizeSet({ ...state.draft, ...extras, id: original?.id || `qset_${Date.now().toString(36)}`, completedAt: original?.completedAt || new Date().toISOString() });
@@ -895,10 +963,10 @@ setInterval(refreshTrainingInBackground, 60000);
 document.addEventListener("error", (event) => { if (event.target?.classList?.contains("exercise-gif")) { event.target.hidden = true; event.target.parentElement?.classList.add("is-media-error"); } }, true);
 
 async function loadExerciseLibrary() {
-  const cached = await DB.get("exercise-library"), custom = (cached || []).filter((item) => item.isCustom);
+  const cached = await DB.get("exercise-library"), custom = (cached || []).filter((item) => item.isCustom || item.isWger);
   state.exercises = mergeExerciseCatalog(BASE_EXERCISES, custom.map(enrichExercise));
   if (!canDirectBodyOs) { await DB.set("exercise-library", state.exercises); await DB.set("exercise-catalog-version", EXERCISE_CATALOG_VERSION); return; }
-  try { const response = await fetch("/api/training/snapshot"); if (!response.ok) return; const data = await response.json(); const items = data.exercise_library || data.exerciseLibrary || []; if (data.body_weight_kg != null) state.session.bodyWeightKg = Number(data.body_weight_kg); if (Array.isArray(items) && items.length) { const remote = items.map((item) => enrichExercise(bodyLibraryExercise(item))).filter((x) => x.id && x.name); const seenIds = new Set(remote.map((item) => item.id)), seenNames = new Set(remote.map((item) => `${item.name}|${item.canonicalNameEn}`.toLowerCase())); state.exercises = [...remote, ...BASE_EXERCISES.filter((item) => !seenIds.has(item.id) && !seenNames.has(`${item.name}|${item.canonicalNameEn}`.toLowerCase())), ...custom.filter((item) => !seenIds.has(item.id))]; await DB.set("exercise-library", state.exercises); } } catch {}
+  try { const response = await fetch("/api/training/snapshot"); if (!response.ok) return; const data = await response.json(); const items = data.exercise_library || data.exerciseLibrary || []; if (data.body_weight_kg != null) state.session.bodyWeightKg = Number(data.body_weight_kg); if (Array.isArray(items) && items.length) { const remote = items.map((item) => enrichExercise(bodyLibraryExercise(item))).filter((x) => x.id && x.name); const seenIds = new Set(remote.map((item) => item.id)), seenNames = new Set(remote.map((item) => `${item.name}|${item.canonicalNameEn}`.toLowerCase())); state.exercises = mergeOwnerExerciseCatalog(remote, BASE_EXERCISES.filter((item) => !seenIds.has(item.id) && !seenNames.has(`${item.name}|${item.canonicalNameEn}`.toLowerCase())), custom); await DB.set("exercise-library", state.exercises); } } catch {}
 }
 
 async function boot() {

@@ -111,3 +111,12 @@
 .custom-photo-grid img { width: 100%; max-height: 260px; aspect-ratio: 3 / 4; object-fit: contain; background: #151a1e; border-radius: 12px; }
 .custom-photo-grid button { position: absolute; top: 5px; right: 5px; width: 36px; height: 36px; padding: 0; background: #12191f; color: white; }
 .edit-custom { margin: 12px 0; width: 100%; }
+
+.library-tiers { margin: 14px 0; }
+.wger-results { margin-top: 18px; }
+.wger-pagination { display: flex; gap: 12px; margin-top: 16px; }
+.wger-pagination button { flex: 1; }
+.wger-results .exercise-card { width: 100%; min-width: 0; }
+.wger-results .exercise-name strong, .wger-results .exercise-name small { overflow-wrap: anywhere; }
+
+.wger-results { scroll-margin-top: 90px; }

@@ -1,0 +1,4 @@
+Public wger exercise snapshot. Source: https://wger.de/api/v2/exerciseinfo/
+Names and descriptions retain per-record source licenses and authors in details/*.json.
+Chinese names marked search_translation are auxiliary search translations, not official wger translations or training advice.
+Media files are not downloaded or preloaded.

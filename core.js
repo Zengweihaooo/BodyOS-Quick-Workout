@@ -145,6 +145,7 @@ export const EXERCISE_CATEGORIES = Object.freeze({
 });
 
 export function exerciseCategory(exercise) {
+  if (exercise?.isWger && ["chest","back","shoulders","arms","legs","core","cardio","other"].includes(exercise.category)) return exercise.category;
   const id = canonicalExerciseId(exercise?.id || exercise?.exerciseId || "");
   if (EXERCISE_CATEGORIES[id]) return EXERCISE_CATEGORIES[id];
   const pattern = exercise?.movementPattern || "";
@@ -178,6 +179,8 @@ function catalogAliasSet(id) {
 }
 
 export function historyExerciseMatches(exercise, targetId) {
+  const explicitWger = [exercise?.exerciseId, exercise?.exercise_canonical_id, exercise?.id].find(value => /^wger_[0-9a-f]{32}$/.test(value || ""));
+  if (explicitWger || /^wger_[0-9a-f]{32}$/.test(targetId || "")) return explicitWger === targetId;
   const aliases = catalogAliasSet(targetId);
   return [exercise?.exerciseId, exercise?.id, exercise?.exercise_canonical_id, exercise?.name, exercise?.canonicalNameEn, exercise?.exerciseName]
     .some((value) => value && aliases.has(String(value).trim().toLowerCase()));
@@ -196,6 +199,7 @@ export function lookupExerciseDefault(defaults, exerciseId) {
 
 export function resolveCatalogExerciseId(exercise) {
   const direct = canonicalExerciseId(exercise?.exerciseId || exercise?.id || "");
+  if (/^wger_[0-9a-f]{32}$/.test(direct)) return direct;
   if (direct && FALLBACK_EXERCISES.some((row) => canonicalExerciseId(row.id) === direct)) return direct;
   for (const row of FALLBACK_EXERCISES) {
     const id = canonicalExerciseId(row.id);
@@ -281,7 +285,7 @@ export function rankPickerExercises(exercises, snapshot, { repeatCatalog = true 
 export function mergeExerciseCatalog(base, cached = []) {
   const builtIn = (base || []).map((item) => ({ ...item, id: canonicalExerciseId(item.id) }));
   const seen = new Set(builtIn.map((item) => item.id));
-  const custom = (cached || []).filter((item) => item?.isCustom).map((item) => ({ ...item, id: canonicalExerciseId(item.id) })).filter((item) => item.id && !seen.has(item.id));
+  const custom = (cached || []).filter((item) => item?.isCustom || (item?.isWger && /^wger_[0-9a-f]{32}$/.test(item.id) && item.provider === "wger")).map((item) => ({ ...item, id: canonicalExerciseId(item.id) })).filter((item) => item.id && !seen.has(item.id));
   return [...builtIn, ...custom];
 }
 
@@ -1118,4 +1122,16 @@ EXERCISE_REFERENCES.dumbbell_triceps_kickback = {"detailsProvider": "wger", "det
 for (const id of ["supine_press_machine", "converging_shoulder_press"]) {
   EXERCISE_REFERENCES[id] = { detailsProvider: "wger", detailsStatus: "pending", mediaStatus: "pending",
     instructionsEn: [], instructionsZh: [], referenceNote: "No verified reference for this exact equipment model" };
+}
+
+
+export function mergeOwnerExerciseCatalog(remote, base, cached = []) {
+  const local = new Map(cached.filter(item => item?.isCustom || item?.isWger).map(item => [item.id,item]));
+  const result = [], seen = new Set();
+  for (const item of [...remote, ...base, ...cached.filter(item => item?.isCustom || item?.isWger)]) {
+    if (!item?.id || seen.has(item.id)) continue;
+    result.push(local.has(item.id) ? {...item,...local.get(item.id)} : item);
+    seen.add(item.id);
+  }
+  return result;
 }
