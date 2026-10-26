@@ -1,4 +1,4 @@
-import { WgerLibrary, searchWgerCatalog } from "./wger-library.js?v=1";
+import { WgerLibrary, searchWgerCatalog } from "./wger-library.js?v=2";
 import { createCustomExercise, validExercisePhoto, exerciseSearchMatches, EXERCISE_CATALOG_VERSION, exerciseGuide, exerciseCategory, bodyLibraryExercise, formatTrainingDate, canRefreshTrainingScreen, recommendationFreshness, shouldUploadFinishedSession, createSerialTaskQueue, EXERCISE_REFERENCES, FALLBACK_EXERCISES, LOAD_LABELS, PICKER_ALPHABET, adjustRest, applyRecordingMode, buildBodyCandidate, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createExport, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, groupPickerCatalogByLetter, lookupExerciseDefault, mergeExerciseCatalog, mergeOwnerExerciseCatalog, nextSetDraft, normalizeSet, pickerLetterTarget, rankPickerExercises, recordingModeForSet, resolveCatalogExerciseId, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise, aggregateLiftPoints, displayLiftKg, liftChartMarkup, liftPointDetailMarkup, lookbackLiftDeltas, progressSeriesForExercise } from "./core.js?v=29";
 import { saveAIChoice, fetchTrainingSnapshot, migrateSupabaseConfig, normalizeSupabaseConfig, refreshSession, sessionIsFresh, signInWithPassword, uploadWorkout } from "./supabase.js?v=12";
 
@@ -266,7 +266,7 @@ function renderPicker() {
       const page = searchWgerCatalog(catalog.items, term, {category: term ? "" : filter, offset});
       wgerOffset = offset; pickerSearchState.offset = offset;
       wgerRoot.innerHTML = `<div class="section-head"><h2>wger 全库 · ${catalog.count} 项</h2><span class="label">${page.total} 项匹配 · ${page.items.length ? offset + 1 : 0}–${offset + page.items.length}</span></div>
-      <p class="muted">保留英文原名；中文检索名包含 wger 中文和辅助译名。每次最多显示 24 项，点选后再加载说明。</p>
+      <p class="muted">保留英文原名；中文检索名包含 wger 中文和辅助译名。每次最多显示 24 项，点选后再加载说明。目录快照：${escapeHTML(catalog.generatedAt?.slice(0,10) || "")}。</p>
       <div class="card-list">${page.items.map(item => `<button type="button" class="exercise-card" data-wger-exercise="${item.id}"><span class="exercise-icon">↗</span><span>${exerciseLabel({name:item.zh,canonicalNameEn:item.en})}<small>${escapeHTML(item.equipment || "wger 动作")} · ${item.zhSource === "wger" ? "官方中文" : "中文检索译名"}</small></span><span class="chevron">›</span></button>`).join("") || '<p class="muted">没有找到匹配动作。可换成英文关键词，或使用“＋自定义”保留器材照片。</p>'}</div>
       <div class="wger-pagination"><button type="button" id="wgerPrevious" ${offset ? "" : "disabled"}>上一页</button><button type="button" id="wgerNext" ${page.nextOffset == null ? "disabled" : ""}>下一页</button></div>`;
       $("#wgerPrevious").onclick = () => paintWger(Math.max(0, wgerOffset - 24)).then(() => wgerRoot.scrollIntoView({block:"start"}));
@@ -309,7 +309,7 @@ function renderPicker() {
     guide.querySelectorAll("[data-preset]").forEach((button) => button.onclick = () => { const preset = presets.find((item) => item.key === button.dataset.preset); activePresetKey = activePresetKey === preset?.key ? "" : (preset?.key || ""); state.pickerPresetKey = activePresetKey; if (preset?.group) { filter = preset.group; pickerSearchState.filter = filter; pickerSearchState.offset = 0; document.querySelectorAll("[data-filter]").forEach((chip) => chip.classList.toggle("active", chip.dataset.filter === filter)); } update(); });
     const preset = presets.find((item) => item.key === activePresetKey) || (activePresetKey === "bodyos_today" ? dayPresets.find((item) => item.day.rotationKey === today?.rotationKey) : null), allowedIds = preset ? new Set(preset.ids) : null;
     const term = search.value.trim().toLowerCase(), words = term.split(/\s+/).filter(Boolean);
-    const matches = state.exercises.filter((x) => (term || (allowedIds ? allowedIds.has(x.id) : (!filter || exerciseCategory(x) === filter))) && exerciseSearchMatches(x, term));
+    const matches = state.exercises.filter((x) => (term || (allowedIds ? allowedIds.has(x.id) : (!filter || exerciseCategory(x) === filter))) && (x.isWger || /^wger_[0-9a-f]{32}$/.test(x.id) ? searchWgerCatalog([x], term).total > 0 : exerciseSearchMatches(x, term)));
     guide.hidden = Boolean(term) || wgerPickerMode === "all";
     if (wgerPickerMode === "all" && !term) {
       list.innerHTML = ""; az?.classList.add("hidden");

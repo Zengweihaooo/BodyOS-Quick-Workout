@@ -41,10 +41,11 @@ export function validateWgerCatalog(data) {
 const searchDocuments = new WeakMap();
 function searchDocument(item) {
   if (!searchDocuments.has(item)) {
-    const input = [item.en, item.zh, item.equipment, ...(item.aliases || [])].join(" ");
+    const en = item.en || item.canonicalNameEn || "", zh = item.zh || item.name || "";
+    const input = [en, zh, item.equipment, ...(item.aliases || [])].join(" ");
     const text = normalizeWgerSearch(input), raw = rawSearchText(input);
     searchDocuments.set(item, { text: text + " " + raw, tokens: (text + " " + raw).split(" "),
-      name: normalizeWgerSearch(item.en + " " + item.zh), rawName: rawSearchText(item.en + " " + item.zh) });
+      name: normalizeWgerSearch(en + " " + zh), rawName: rawSearchText(en + " " + zh) });
   }
   return searchDocuments.get(item);
 }

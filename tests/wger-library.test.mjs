@@ -85,3 +85,9 @@ test("row search does not treat the letters inside narrow as a rowing movement",
   assert.deepEqual(searchWgerCatalog(items,"划船").items.map(x=>x.id),["row"]);
   assert.deepEqual(searchWgerCatalog(items,"bench pr").items.map(x=>x.id),["narrow"]);
 });
+
+test("selected cached wger items use the same bilingual matcher as source rows",()=>{
+  const cached={id:"wger_"+"a".repeat(32),isWger:true,name:"器械肩推",canonicalNameEn:"Shoulder Press, on Machine",aliases:[]};
+  assert.equal(searchWgerCatalog([cached],"器械推肩").total,1);
+  assert.equal(searchWgerCatalog([cached],"shoulder press").total,1);
+});
