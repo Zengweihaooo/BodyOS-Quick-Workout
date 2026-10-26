@@ -249,7 +249,7 @@ function renderPicker() {
     const list = $("#exerciseList"), search = $("#search"), guide = $("#presetGuide"), az = $("#pickerAz"), hud = $("#pickerAzHud");
   const wgerRoot = $("#wgerResults");
   search.value = pickerSearchState.query;
-  let wgerOffset = pickerSearchState.offset, wgerDebounce = null, selectingWger = false;
+  let wgerOffset = pickerSearchState.offset, wgerDebounce = null, selectingWger = false, preferredExpanded = false;
   const paintWger = async (offset = pickerSearchState.offset) => {
     const paint = ++pickerPaint, term = search.value.trim();
     $("#tierCommon").classList.toggle("active", wgerPickerMode === "common");
@@ -311,10 +311,16 @@ function renderPicker() {
     const term = search.value.trim().toLowerCase(), words = term.split(/\s+/).filter(Boolean);
     const matches = state.exercises.filter((x) => (term || (allowedIds ? allowedIds.has(x.id) : (!filter || exerciseCategory(x) === filter))) && (x.isWger || /^wger_[0-9a-f]{32}$/.test(x.id) ? searchWgerCatalog([x], term).total > 0 : exerciseSearchMatches(x, term)));
     guide.hidden = Boolean(term) || wgerPickerMode === "all";
-    if (wgerPickerMode === "all" && !term) {
+    if (wgerPickerMode === "all") {
       list.innerHTML = ""; az?.classList.add("hidden");
     } else if (!matches.length) {
       list.innerHTML = `<div class="empty">常用库暂无匹配，下面继续搜索 wger 完整动作库。</div>`;
+      az?.classList.add("hidden");
+    } else if (term) {
+      const preferred = rankPickerExercises(matches, state.training.snapshot, {repeatCatalog:false});
+      const visible = preferredExpanded ? preferred : preferred.slice(0,5);
+      list.innerHTML = `<div class="picker-section-label">常用与自选匹配 · ${preferred.length} 项</div>${visible.map(exercise => exerciseCard(exercise,0)).join("")}${visible.length < preferred.length ? `<button type="button" class="secondary" id="expandPreferred">展开其余 ${preferred.length-visible.length} 项常用匹配</button>` : ""}`;
+      $("#expandPreferred")?.addEventListener("click", () => {preferredExpanded=true;update();});
       az?.classList.add("hidden");
     } else if (preset && !term) {
       matches.sort((left, right) => preset.ids.indexOf(left.id) - preset.ids.indexOf(right.id));
@@ -341,7 +347,7 @@ function renderPicker() {
   $("#pickerCloud").onclick = () => navigate("cloud");
   $("#tierCommon").onclick = () => { wgerPickerMode = "common"; update(); };
   $("#tierWger").onclick = () => { wgerPickerMode = "all"; update(); };
-  search.oninput = () => { pickerSearchState.query = search.value; pickerSearchState.offset = 0; update(); }; document.querySelectorAll("[data-filter]").forEach((chip) => chip.onclick = () => { document.querySelectorAll("[data-filter]").forEach((x) => x.classList.remove("active")); chip.classList.add("active"); filter = chip.dataset.filter; pickerSearchState.filter = filter; pickerSearchState.offset = 0; activePresetKey = ""; state.pickerPresetKey = ""; update(); }); $("#addCustom").onclick = () => { customEditingId = ""; customPhotoDraft = []; navigate("custom"); }; list.onclick = (event) => { const button = event.target.closest("[data-exercise]"); if (button) openExercise(button.dataset.exercise); }; update();
+  search.oninput = () => { pickerSearchState.query = search.value; pickerSearchState.offset = 0; preferredExpanded = false; update(); }; document.querySelectorAll("[data-filter]").forEach((chip) => chip.onclick = () => { document.querySelectorAll("[data-filter]").forEach((x) => x.classList.remove("active")); chip.classList.add("active"); filter = chip.dataset.filter; pickerSearchState.filter = filter; pickerSearchState.offset = 0; activePresetKey = ""; state.pickerPresetKey = ""; update(); }); $("#addCustom").onclick = () => { customEditingId = ""; customPhotoDraft = []; navigate("custom"); }; list.onclick = (event) => { const button = event.target.closest("[data-exercise]"); if (button) openExercise(button.dataset.exercise); }; update();
 }
 
 
