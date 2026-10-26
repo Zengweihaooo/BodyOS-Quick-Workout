@@ -321,6 +321,7 @@ function renderCustomExercise() {
     $("#customPhotoPreview").querySelectorAll("[data-remove-photo]").forEach(button => button.onclick = () => { customPhotoDraft.splice(Number(button.dataset.removePhoto), 1); preview(); });
   };
   document.querySelectorAll(".photo-pick").forEach(label => label.onkeydown = event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); document.getElementById(label.htmlFor).click(); } });
+  const customForm = $("#customExerciseForm");
   let readingPhotos = false;
   const readPhotos = async event => {
     if (readingPhotos) return;
@@ -330,10 +331,11 @@ function renderCustomExercise() {
       const files = [...event.target.files];
       const available = 4 - customPhotoDraft.length;
       const photos = await Promise.all(files.slice(0, available).map(compactExercisePhoto));
+      if ($("#customExerciseForm") !== customForm) return;
       customPhotoDraft.push(...photos); preview();
       $("#customPhotoStatus").textContent = files.length > available ? "最多保留 4 张照片" : "照片已准备好，点击保存即可保留";
-    } catch (error) { $("#customPhotoStatus").textContent = error.message || "这张图片无法预览，请选择其他图片"; }
-    finally { readingPhotos = false; $("#saveCustom").disabled = false; $("#customCamera").disabled = false; $("#customPhotos").disabled = false; event.target.value = ""; }
+    } catch (error) { if ($("#customExerciseForm") === customForm) $("#customPhotoStatus").textContent = error.message || "这张图片无法预览，请选择其他图片"; }
+    finally { readingPhotos = false; if ($("#customExerciseForm") === customForm) { $("#saveCustom").disabled = false; $("#customCamera").disabled = false; $("#customPhotos").disabled = false; } event.target.value = ""; }
   };
   $("#customCamera").onchange = readPhotos; $("#customPhotos").onchange = readPhotos; preview();
   $("#customExerciseForm").onsubmit = event => { event.preventDefault(); $("#saveCustom").click(); };
