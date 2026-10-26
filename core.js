@@ -738,6 +738,9 @@ export function snapshotFromWorkoutUploads(rows = []) {
       endedAt: normalizeTrainingTimestamp(session.endedAt),
       activityType: "TraditionalStrengthTraining",
       source: "quick_workout_upload",
+      importedWorkoutId: String(row.imported_workout_id || ""),
+      importedAt: row.imported_at || "",
+      uploadUpdatedAt: row.updated_at || "",
       exercises: [...grouped.values()],
     });
   }
@@ -1022,14 +1025,27 @@ export function liftChartMarkup(points, { unit = "kg", grain = "session", large 
   </div>`;
 }
 
-// History always comes from uploads; owner-scoped projections add prescriptions only.
+// Keep uploads as the history index; apply owner corrections only to explicitly linked imports.
 export function augmentTrainingSnapshot(history, row) {
   const projection = row?.payload;
   if (!projection || typeof projection !== "object" || Array.isArray(projection)) {
     return { ...history, recommendationNotice: "动态推荐尚未发布，Mac 同步后会自动出现。" };
   }
+  const generated = Date.parse(normalizeTrainingTimestamp(row.generated_at || projection.generatedAt));
+  const canonical = new Map((Array.isArray(projection.workoutHistory) ? projection.workoutHistory : [])
+    .filter((item) => item?.id && Array.isArray(item.exercises) && item.exercises.length)
+    .map((item) => [item.id, item]));
+  const workoutHistory = (history.workoutHistory || []).map((workout) => {
+    const corrected = canonical.get(workout.importedWorkoutId);
+    const imported = Date.parse(normalizeTrainingTimestamp(workout.importedAt));
+    const updated = Date.parse(normalizeTrainingTimestamp(workout.uploadUpdatedAt || workout.importedAt));
+    if (!corrected || !Number.isFinite(imported) || !Number.isFinite(updated) || !Number.isFinite(generated)
+        || generated < imported || generated < updated) return workout;
+    return { ...workout, ...corrected, id: workout.id, importedWorkoutId: workout.importedWorkoutId };
+  });
   return {
     ...history,
+    workoutHistory,
     today: projection.today && typeof projection.today === "object" ? projection.today : {},
     recommendation: projection.recommendation || {},
     aiReview: projection.aiReview || null,

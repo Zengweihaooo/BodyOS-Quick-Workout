@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { augmentTrainingSnapshot, canRefreshTrainingScreen, recommendationFreshness, shouldUploadFinishedSession, createExport, createSerialTaskQueue, draftFromExerciseDefault } from "../core.js";
+import { augmentTrainingSnapshot, canRefreshTrainingScreen, recommendationFreshness, shouldUploadFinishedSession, createExport, createSerialTaskQueue, draftFromExerciseDefault, snapshotFromWorkoutUploads, progressSeriesForExercise } from "../core.js";
 
 test("projection augments prescriptions without replacing uploads history", () => {
   const history = { workoutHistory: [{ id: "uploaded" }], exerciseDefaults: { leg_press: { weightValue: 20 } }, today: {} };
@@ -76,4 +76,29 @@ test("AI review projection remains optional and never supplies replacement histo
   assert.equal(merged.aiReview.model,"chosen");
   assert.equal(merged.aiReview.needsConfirmation,true);
   assert.deepEqual(merged.workoutHistory,history.workoutHistory);
+});
+
+test("confirmed imported workouts use owner corrections without adding projection-only records", () => {
+  const original = { id: "upload", importedWorkoutId: "owner-workout", importedAt: "2026-01-01T12:00:00Z", uploadUpdatedAt: "2026-01-01T12:00:00Z", exercises: [{exerciseId:"press", sets:[{weight_value:20,weight_unit:"lb"}]}] };
+  const corrected = { id: "owner-workout", exercises: [{exerciseId:"press",sets:[{weight_value:20,weight_unit:"kg"}]}] };
+  const row = {generated_at:"2026-01-02T12:00:00Z",payload:{workoutHistory:[corrected,{id:"extra",exercises:[{}]}]}};
+  const merged = augmentTrainingSnapshot({workoutHistory:[original]}, row);
+  assert.equal(merged.workoutHistory.length,1);
+  assert.equal(merged.workoutHistory[0].id,"upload");
+  assert.equal(merged.workoutHistory[0].exercises[0].sets[0].weight_unit,"kg");
+  assert.equal(original.exercises[0].sets[0].weight_unit,"lb");
+  for (const changes of [{importedAt:""},{importedWorkoutId:""},{uploadUpdatedAt:"2026-01-03T12:00:00Z"}]) {
+    const pending = {...original,...changes};
+    assert.equal(augmentTrainingSnapshot({workoutHistory:[pending]},row).workoutHistory[0],pending);
+  }
+});
+
+
+test("cloud import metadata reaches corrected progress without rewriting the original upload", () => {
+  const upload = {id:"remote", imported_workout_id:"canonical", imported_at:"2026-01-01T12:00:00Z", updated_at:"2026-01-01T11:00:00Z",payload:{session:{id:"session",startedAt:"2026-01-01T11:00:00Z",sets:[{exerciseId:"machine_chest_press",weightValue:20,weightUnit:"lb",reps:10}]}}};
+  const history = snapshotFromWorkoutUploads([upload]);
+  const row = {generated_at:"2026-01-02T12:00:00Z",payload:{workoutHistory:[{id:"canonical",startedAt:"2026-01-01T11:00:00Z",exercises:[{exerciseId:"machine_chest_press",sets:[{weight_value:20,weight_unit:"kg",weight_kg:20,reps:10}]}]}]}};
+  const merged = augmentTrainingSnapshot(history,row);
+  assert.equal(progressSeriesForExercise(merged,"machine_chest_press").points[0].weightKg,20);
+  assert.equal(upload.payload.session.sets[0].weightUnit,"lb");
 });
