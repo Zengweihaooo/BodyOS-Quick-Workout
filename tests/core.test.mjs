@@ -122,10 +122,13 @@ test("reviewed Body OS references use allowlisted URLs and separated sources", (
   assert.ok(catalogIds.every((id) => EXERCISE_REFERENCES[id]?.gifUrl || EXERCISE_REFERENCES[id]?.mediaStatus === "pending"), "uncertain variants must be explicit instead of showing a wrong animation");
   assert.ok(Object.keys(EXERCISE_REFERENCES).every((id) => FALLBACK_EXERCISES.some((item) => item.id === id)));
   for (const [id, reference] of Object.entries(EXERCISE_REFERENCES)) {
-    const gif = new URL(reference.gifUrl || reference.unverifiedDataset.gifUrl);
+    const media = reference.gifUrl || reference.unverifiedDataset?.gifUrl;
+    if (media) {
+    const gif = new URL(media);
     assert.equal(gif.protocol, "https:", id);
     assert.equal(gif.hostname, "raw.githubusercontent.com", id);
     assert.ok(gif.pathname.startsWith("/hasaneyldrm/exercises-dataset/"), id);
+    } else assert.equal(reference.mediaStatus, "pending", id);
     assert.equal(reference.detailsProvider, "wger", id);
     assert.ok(Array.isArray(reference.instructionsEn), id);
     assert.ok(Array.isArray(reference.instructionsZh), id);
@@ -397,7 +400,7 @@ test("barbell and dumbbell shrugs use separately verified English source transla
     assert.equal(ref.unverifiedWger.id, 320);
     assert.deepEqual(ref.instructionsZh, []);
   }
-  assert.equal(Object.values(EXERCISE_REFERENCES).filter(ref => ref.detailsStatus === "pending").length, 39);
+  assert.equal(Object.values(EXERCISE_REFERENCES).filter(ref => ref.detailsStatus === "pending").length, 41);
 });
 
 

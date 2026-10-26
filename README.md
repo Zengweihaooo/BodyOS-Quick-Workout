@@ -65,3 +65,9 @@ Built-in picker categories use canonical IDs rather than display-name substring 
 Confirmed unrelated wger descriptions have been removed from active guides. Their original source and license are retained in `unverifiedWger` for review; these fields are never used as instructions. Four mismatched or insufficiently specific animation variants are pending review and show the movement icon instead. The media matching helper now produces pending candidates, cannot assign an empty or non-English title to every exercise, never invents a license, and permits different movements to reference the same source when appropriate. A catalog row or a successful URL check does not prove a semantic media match.
 
 Body OS capability flags describe supported choices. They do not override reviewed built-in load and bilateral execution defaults. Existing saved sets are preserved.
+
+### 器材名称与自定义照片（2026-10-26）
+
+动作库可搜索 Supine Press、Converging Shoulder Press、俯身哑铃臂屈伸及中英文别名。输入搜索词会在全动作库中查询，不受刚才选择的训练模板限制。两个具体器械型号的资料保留待核对状态；不会借用其他动作的动图。俯身哑铃臂屈伸的文字说明来自 [wger 655](https://wger.de/en/exercise/655)，按该条来源的 CC-BY-SA 3 许可标注。
+
+“＋ 自定义”支持名称、器材备注和照片全部可选。可直接拍器材或选取最多四张照片；保存前在设备上压缩并去除原照片元数据。未命名动作会获得日期占位名称，保存后可重新编辑名称和照片。自定义动作及照片保留在这台设备的动作库中；照片不会随训练记录自动上传。清除浏览器数据或更换设备不会自动恢复本机照片。
