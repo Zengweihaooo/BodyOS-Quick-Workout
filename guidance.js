@@ -5,11 +5,11 @@ import { canonicalExerciseId, estimated1rmKg, exerciseCategory, historyExerciseM
 export const GUIDANCE_SOURCES = Object.freeze([
   { id: "acsm2026", label: "ACSM 2026 抗阻训练指南更新", url: "https://acsm.org/resistance-training-guidelines-update-2026/", use: "每个主要肌群每周至少训练 2 次；增肌约每肌群每周 10 组" },
   { id: "acsm2009", label: "ACSM 2009 Progression Models in Resistance Training", url: "https://pubmed.ncbi.nlm.nih.gov/19204579/", use: "新手负荷 8–12RM；每周 2–3 天（新手）、3–4 天（中级）" },
-  { id: "schoenfeld2016", label: "Schoenfeld 2016 训练频率 meta 分析（Sports Med）", url: "https://pubmed.ncbi.nlm.nih.gov/27102172/", use: "按组数相同比较：每周 2 次的增肌效果优于 1 次，主要肌群应每周至少训练 2 次" },
-  { id: "schoenfeld2017", label: "Schoenfeld 2017 每周组数剂量反应 meta 分析", url: "https://pubmed.ncbi.nlm.nih.gov/27433992/", use: "每周组数与增肌呈分级剂量反应（<5 / 5–9 / 10+ 三档的差异仅为趋势，P=0.074）" },
+  { id: "schoenfeld2019", label: "Schoenfeld 2019 训练频率 meta 分析（25 项研究，J Sports Sci）", url: "https://pubmed.ncbi.nlm.nih.gov/30558493/", use: "周组数相同时，每周训练 1 次与多次的增肌没有显著差别；组数不相同的比较里，更高频率略占优" },
+  { id: "schoenfeld2017", label: "Schoenfeld 2017 每周组数剂量反应 meta 分析（全文）", url: "https://pubmed.ncbi.nlm.nih.gov/27433992/", use: "周组数越多增肌越多（每多 1 组效应量 +0.023）；<5 / 5–9 / 10+ 三档的差异只是趋势（P=0.074）" },
   { id: "heinecke2021", label: "Heinecke 2021 杠铃与哑铃卧推（同总重量）对比", url: "https://pubmed.ncbi.nlm.nih.gov/33666593/", use: "同样总重量下杠铃与双手哑铃的力竭次数高度相关（r=0.96），杠铃略多（13.8 vs 12.5）；互相预测 1RM 的总误差约 7–8%" },
   { id: "izquierdo2007", label: "Izquierdo 2007 停训与减量", url: "https://pubmed.ncbi.nlm.nih.gov/17685721/", use: "完全停训 4 周：最大力量下降 6–9%（受试者为受训男性）" },
-  { id: "mujika2000", label: "Mujika & Padilla 2000 Detraining Part I", url: "https://pubmed.ncbi.nlm.nih.gov/10966148/", use: "定义停训不足 4 周为短期停训，期间力量下降有限" },
+  { id: "mujika2000", label: "Mujika & Padilla 2000 Detraining Part I（全文）", url: "https://pubmed.ncbi.nlm.nih.gov/10966148/", use: "力量表现在不训练 4 周内大体保留；偏心力量和专项爆发力可能明显下降" },
   { id: "bodyos-plan", label: "Body OS 胸/背/腿三分化计划（本人 2026-10-25 确认）", url: "", use: "每周 3–4 次、至少约 48 小时间隔、胸→背→腿连续轮换；复训期余力 3–4、增肌期 2–3" },
 ]);
 
@@ -277,7 +277,8 @@ export function splitGroupOf(exercise, index = new Map()) {
 //  minHours 48            — Body OS plan: "至少约48小时的力量训练间隔" (also the backend's `next_due`).
 //  detrainDays 28         — Mujika & Padilla 2000: under 4 weeks is short-term detraining; beyond it strength loss is measurable (Izquierdo 2007).
 //  weeklySetsTarget 10    — ACSM 2026: ~10 sets per muscle group per week for hypertrophy.
-//  weeklyFrequencyTarget 2 — ACSM 2026 / Schoenfeld 2016: train each major muscle group at least twice a week.
+//  weeklyFrequencyTarget 2 — ACSM 2026: train each major muscle group at least twice a week. Schoenfeld 2019 (25 studies) finds no
+//  significant frequency effect when weekly volume is equal, so frequency is shown as an ACSM recommendation, not as a proven requirement.
 // No source gives an individual "supercompensation peak", so none is shown: after 48 h a day is simply "ready",
 // and the page reports how far weekly frequency and sets are from the ACSM targets.
 export const RECOVERY = Object.freeze({ minHours: 48, detrainDays: 28, weeklySetsTarget: 10, weeklyFrequencyTarget: 2, minSetsToCount: 1, spacingDays: 2 });
