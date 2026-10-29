@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { FALLBACK_EXERCISES } from "../core.js";
+import { FALLBACK_EXERCISES, historySourceLabel } from "../core.js";
 import { GUIDANCE_SOURCES, OLYMPIC_BAR_KG, RECOVERY, crossExerciseEstimate, fromTotalLoad, personalStackToFreeRatio, totalLoadKg, detrainingDiscount, equipmentGroup, exerciseAlternatives, loadForReps, recoveryPlan, splitGroupOf, suggestWeight } from "../guidance.js";
 
 const catalog = FALLBACK_EXERCISES.map((row) => ({ ...row }));
@@ -146,4 +146,10 @@ test("Body.OS-published recovery windows take precedence over the local computat
   const chest = plan.groups.find((g) => g.key === "chest");
   assert.equal(plan.fromBodyOs, true); assert.equal(chest.status, "ready"); assert.equal(chest.weekSets, 8); assert.equal(chest.weekFrequencyGap, 1); assert.equal(chest.daysSince, 3);
   assert.equal(plan.groups.find((g) => g.key === "back").status, "never");
+});
+
+test("history source labels separate merged Apple Watch sessions from Pages-only uploads", () => {
+  assert.equal(historySourceLabel({ source: "health_auto_export" }).kind, "merged");
+  assert.equal(historySourceLabel({ source: "quick_workout_upload" }).kind, "pages_only");
+  assert.equal(historySourceLabel({}).kind, "other");
 });

@@ -598,6 +598,15 @@ function historyExerciseSummary(exercise = {}) {
   };
 }
 
+// Where a history entry came from, so one training that was matched to the Apple Watch session reads differently
+// from an upload that never found its Watch session. `merged` entries are the same training counted once.
+export function historySourceLabel(item = {}) {
+  const source = String(item.source || "");
+  if (source === "health_auto_export") return { kind: "merged", zh: "Apple Watch · 动作记录已合并", en: "Apple Watch · sets merged" };
+  if (source === "quick_workout_upload") return { kind: "pages_only", zh: "仅 Pages 上传 · 未匹配 Apple Watch", en: "Pages upload only · no Apple Watch match" };
+  return { kind: "other", zh: "其他来源", en: "Other source" };
+}
+
 export function compareWorkoutHistory(current, previous = null) {
   const currentExercises = (current?.exercises || []).map(historyExerciseSummary);
   const previousById = new Map((previous?.exercises || []).map((item) => {
