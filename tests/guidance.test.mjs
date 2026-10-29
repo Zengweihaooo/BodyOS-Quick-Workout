@@ -119,15 +119,17 @@ test("recovery: strict chest→back→legs rotation, 48 h gate, sourced windows"
   const plan = recoveryPlan(snap, { now: NOW });
   const g = Object.fromEntries(plan.groups.map((x) => [x.key, x]));
   assert.equal(g.chest.status, "recovering");
-  assert.equal(g.back.status, "optimal");
+  assert.equal(g.back.status, "ready");
   assert.equal(g.legs.status, "ready");
+  assert.equal(g.chest.weekSessions, 1); assert.equal(g.chest.weekFrequencyGap, 1);
   assert.equal(plan.next.key, "back");               // after chest comes back
   assert.equal(plan.next.readyNow, false);            // chest was only 1 day ago (<48 h)
   assert.equal(plan.forecast.length, 7);
   const order = plan.forecast.filter((f) => f.group).map((f) => f.group);
   assert.ok(order.length >= 1 && order.length <= plan.pace);
   assert.deepEqual(order, ["back", "legs", "chest", "back"].slice(0, order.length));
-  assert.equal(RECOVERY.idealEndHours, 84);
+  assert.deepEqual(Object.keys(RECOVERY).sort(), ["detrainDays", "minHours", "minSetsToCount", "spacingDays", "weekFrequencyTarget", "weeklyFrequencyTarget", "weeklySetsTarget"].filter((k) => k !== "weekFrequencyTarget").sort());
+  assert.equal(g.legs.status === "detrain", false);
   assert.equal(recoveryPlan({ workoutHistory: [] }, { now: NOW }).groups.every((x) => x.status === "never"), true);
 });
 
@@ -138,10 +140,10 @@ test("every cited source has a first-hand URL except the user's own plan; no unv
 
 test("Body.OS-published recovery windows take precedence over the local computation", () => {
   const snap = { today: { rotationKey: "legs" }, recommendation: { sessionsPerWeek: 3, sessionsPerWeekMax: 4, recovery: { groups: [
-    { key: "chest", status: "optimal", lastAt: day(3), lastSets: 4, hoursSince: 72, startAt: day(1), idealEndAt: day(-0.5), weekSets: 8, monthSets: 20, avgWeekSets: 5, weekSetsGap: 2 },
+    { key: "chest", status: "ready", lastAt: day(3), lastSets: 4, hoursSince: 72, startAt: day(1), weekSessions: 1, weekSets: 8, monthSets: 20, avgWeekSets: 5, weekSetsGap: 2 },
   ] } }, workoutHistory: [] };
   const plan = recoveryPlan(snap, { now: NOW });
   const chest = plan.groups.find((g) => g.key === "chest");
-  assert.equal(plan.fromBodyOs, true); assert.equal(chest.status, "optimal"); assert.equal(chest.weekSets, 8); assert.equal(chest.daysSince, 3);
+  assert.equal(plan.fromBodyOs, true); assert.equal(chest.status, "ready"); assert.equal(chest.weekSets, 8); assert.equal(chest.weekFrequencyGap, 1); assert.equal(chest.daysSince, 3);
   assert.equal(plan.groups.find((g) => g.key === "back").status, "never");
 });

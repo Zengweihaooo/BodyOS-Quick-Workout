@@ -1,6 +1,6 @@
 import { WgerLibrary, searchWgerCatalog } from "./wger-library.js?v=2";
 import { exerciseHistorySessionCounts, createCustomExercise, validExercisePhoto, exerciseSearchMatches, EXERCISE_CATALOG_VERSION, exerciseGuide, exerciseCategory, bodyLibraryExercise, formatTrainingDate, canRefreshTrainingScreen, recommendationFreshness, shouldUploadFinishedSession, createSerialTaskQueue, EXERCISE_REFERENCES, FALLBACK_EXERCISES, LOAD_LABELS, PICKER_ALPHABET, adjustRest, applyRecordingMode, buildBodyCandidate, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createExport, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, groupPickerCatalogByLetter, lookupExerciseDefault, mergeExerciseCatalog, mergeOwnerExerciseCatalog, nextSetDraft, normalizeSet, pickerLetterTarget, rankPickerExercises, recordingModeForSet, resolveCatalogExerciseId, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise, aggregateLiftPoints, displayLiftKg, liftChartMarkup, liftPointDetailMarkup, lookbackLiftDeltas, progressSeriesForExercise } from "./core.js?v=30";
-import { GUIDANCE_SOURCES, RECOVERY, SPLIT_LABELS, exerciseAlternatives, recoveryPlan, suggestWeight } from "./guidance.js?v=3";
+import { GUIDANCE_SOURCES, RECOVERY, SPLIT_LABELS, exerciseAlternatives, recoveryPlan, suggestWeight } from "./guidance.js?v=4";
 import { saveAIChoice, fetchTrainingSnapshot, migrateSupabaseConfig, normalizeSupabaseConfig, refreshSession, sessionIsFresh, signInWithPassword, uploadWorkout } from "./supabase.js?v=12";
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -199,8 +199,8 @@ function renderRecommendation() {
 }
 
 const RECOVERY_STATUS = {
-  recovering: ["恢复中（<48 小时）", "Recovering (<48 h)", "warn"], optimal: ["最佳窗口（48–84 小时）", "Ideal window (48–84 h)", "good"], ready: ["可训练（已过 84 小时）", "Ready (past 84 h)", "ok"],
-  late: ["拖久了（>7 天）", "Overdue (>7 d)", "warn"], detrain: ["超过 4 周 · 进入停训区", "4+ weeks · detraining zone", "bad"], never: ["暂无记录", "No data", "muted"],
+  recovering: ["恢复中（<48 小时）", "Recovering (<48 h)", "warn"], ready: ["已满 48 小时，可训练", "48 h passed, ready", "good"],
+  detrain: ["超过 4 周 · 进入停训区", "4+ weeks · detraining zone", "bad"], never: ["暂无记录", "No data", "muted"],
 };
 function renderRecovery() {
   setScreenHeading(localeText("恢复规划", "Recovery plan"));
@@ -212,10 +212,10 @@ function renderRecovery() {
   const hasData = plan.sessions28 > 0 || plan.groups.some((g) => g.lastMs);
   const cards = plan.groups.map((g) => {
     const [zh, en, tone] = RECOVERY_STATUS[g.status];
-    const when = g.status === "recovering" ? localeText(`${fmt(g.startMs, stamp)} 起可再练；最佳窗口到 ${fmt(g.endMs, stamp)}`, `Ready ${fmt(g.startMs, stamp)}; ideal window until ${fmt(g.endMs, stamp)}`)
+    const when = g.status === "recovering" ? localeText(`${fmt(g.startMs, stamp)} 起可再练（满 48 小时）`, `Ready from ${fmt(g.startMs, stamp)} (48 h)`)
       : g.lastMs ? localeText(`上次 ${fmt(g.lastMs)}（${g.daysSince} 天前，${g.lastSets} 组）`, `Last ${fmt(g.lastMs)} (${g.daysSince} d ago, ${g.lastSets} sets)`) : localeText("还没有该日的训练记录", "No sessions for this day yet");
     const volume = localeText(`近 7 天 ${g.weekSets} 组 / ACSM 目标约 ${RECOVERY.weeklySetsTarget}${g.weekSetsGap ? `，还差 ${g.weekSetsGap}` : " ✓"}`, `7-day sets ${g.weekSets} / ACSM target ~${RECOVERY.weeklySetsTarget}${g.weekSetsGap ? `, ${g.weekSetsGap} short` : " ✓"}`);
-    return `<section class="recovery-card ${tone}"><div class="row"><h3>${label(g.key)}</h3><span class="recovery-pill ${tone}">${localeText(zh, en)}</span></div><p>${when}</p><small>${volume} · ${localeText(`4 周均 ${g.avgWeekSets} 组/周`, `4-wk avg ${g.avgWeekSets} sets/wk`)}</small></section>`;
+    return `<section class="recovery-card ${tone}"><div class="row"><h3>${label(g.key)}</h3><span class="recovery-pill ${tone}">${localeText(zh, en)}</span></div><p>${when}</p><small>${localeText(`近 7 天练了 ${g.weekSessions} 次 / ACSM 建议每肌群每周 ≥${RECOVERY.weeklyFrequencyTarget}`, `${g.weekSessions} session(s) in 7 days / ACSM: ≥${RECOVERY.weeklyFrequencyTarget} per week`)} · ${volume} · ${localeText(`4 周均 ${g.avgWeekSets} 组/周`, `4-wk avg ${g.avgWeekSets} sets/wk`)}</small></section>`;
   }).join("");
   const next = plan.next;
   const lazy = next.idleDays >= 4;
@@ -229,7 +229,7 @@ function renderRecovery() {
   app.innerHTML = `<section class="hero"><div class="label">${localeText("胸 / 背 / 腿 · 恢复与超量恢复", "Chest / Back / Legs · recovery")}</div><h2 class="recovery-next">${nextText}</h2><p class="muted">${freqText}</p>${plan.fromBodyOs ? `<p class="muted">${localeText("窗口由 Body.OS 按正式三分化计划计算并发布。", "Windows computed and published by Body.OS from the formal three-split plan.")}</p>` : ""}${plan.usedDayPlans ? "" : `<p class="muted">${localeText("尚未收到 Body.OS 发布的三分化计划，动作暂按名称归入胸/背/腿日。", "No published three-split plan yet; exercises are assigned by name.")}</p>`}</section>
   <section class="section"><div class="section-head"><h2>${localeText("各训练日状态", "Day status")}</h2></div><div class="card-list">${cards}</div></section>
   <section class="section"><div class="section-head"><h2>${localeText("未来 7 天排布", "Next 7 days")}</h2></div><div class="forecast-row">${forecast}</div><p class="muted">${localeText(`严格按胸→背→腿轮换，隔日一练（满足 48 小时），每周最多 ${plan.pace} 次；偷懒后重新打开本页会自动顺延。`, `Strict chest→back→legs rotation, every other day (≥48 h), at most ${plan.pace}/week; skipped days roll forward.`)}</p></section>
-  <details class="detail-panel"><summary>${localeText("规则与出处", "Rules & sources")}</summary><div class="detail-body"><p>${localeText(`48 小时是你自己三分化计划里已采用的最小间隔；84 小时 = 3.5 天，是仍能保证每肌群每周 2 次的最长间隔（ACSM 2026、Schoenfeld 2016）；超过 7 天只剩每周 1 次刺激；超过 4 周进入停训区（Mujika & Padilla；Izquierdo：完全停训 4 周力量下降 6–9%）。文献没有给出个人精确的“超量恢复峰值”，所以“最佳窗口”是上述规则的推论，不是测量值。`, `48 h is the minimum gap already in your own three-split plan; 84 h = 3.5 d is the longest gap that still gives ≥2 sessions/muscle/week (ACSM 2026, Schoenfeld 2016); beyond 7 d only once-weekly stimulus remains; beyond 4 weeks is the detraining zone (Mujika & Padilla; Izquierdo: −6…−9% strength after 4 weeks of complete cessation). No source gives an individual supercompensation peak, so the "ideal window" is derived from these rules, not measured.`)}</p><ul>${sources}</ul></div></details>`;
+  <details class="detail-panel"><summary>${localeText("规则与出处", "Rules & sources")}</summary><div class="detail-body"><p>${localeText(`这里只用有出处的阈值：训练后满 48 小时可再练（你自己三分化计划里的间隔）；每个肌群每周至少 2 次、每周约 10 组（ACSM 2026，Schoenfeld 2016）；超过 4 周进入停训区（Mujika & Padilla 2000；Izquierdo 2007：完全停训 4 周最大力量下降 6–9%）。文献没有给出个人化的“超量恢复峰值”，所以页面不再标注“最佳窗口”，只告诉你已满 48 小时，以及每周频率、组数离 ACSM 目标还差多少。`, `Only sourced thresholds are used: ready 48 h after a session (the gap in your own three-split plan); each muscle at least twice a week and ~10 sets a week (ACSM 2026, Schoenfeld 2016); beyond 4 weeks is the detraining zone (Mujika & Padilla 2000; Izquierdo 2007: −6…−9% max strength after 4 weeks of complete cessation). No source gives an individual supercompensation peak, so no "ideal window" is shown — only that 48 h have passed and how far weekly frequency and sets are from the ACSM targets.`)}</p><ul>${sources}</ul></div></details>`;
   bottomBar.innerHTML = `<button class="secondary" id="recoveryBack">${localeText("返回训练", "Back")}</button><button class="primary" id="recoveryStart">${localeText("开始训练", "Start training")}</button>`;
   $("#recoveryBack").onclick = () => navigate("home"); $("#recoveryStart").onclick = () => navigate("picker", { pickerPresetKey: "bodyos_today" });
 }

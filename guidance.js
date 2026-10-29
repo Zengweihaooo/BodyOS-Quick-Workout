@@ -3,14 +3,14 @@
 import { canonicalExerciseId, estimated1rmKg, exerciseCategory, historyExerciseMatches, normalizeTrainingTimestamp, workingSetWeightKg } from "./core.js";
 
 export const GUIDANCE_SOURCES = Object.freeze([
-  { id: "acsm2026", label: "ACSM 2026 抗阻训练指南更新", url: "https://acsm.org/resistance-training-guidelines-update-2026/", use: "每个主要肌群每周至少 2 次；增肌约每肌群每周 10 组" },
+  { id: "acsm2026", label: "ACSM 2026 抗阻训练指南更新", url: "https://acsm.org/resistance-training-guidelines-update-2026/", use: "每个主要肌群每周至少训练 2 次；增肌约每肌群每周 10 组" },
   { id: "acsm2009", label: "ACSM 2009 Progression Models in Resistance Training", url: "https://pubmed.ncbi.nlm.nih.gov/19204579/", use: "新手负荷 8–12RM；每周 2–3 天（新手）、3–4 天（中级）" },
   { id: "schoenfeld2016", label: "Schoenfeld 2016 训练频率 meta 分析（Sports Med）", url: "https://pubmed.ncbi.nlm.nih.gov/27102172/", use: "按组数相同比较：每周 2 次的增肌效果优于 1 次，主要肌群应每周至少训练 2 次" },
   { id: "schoenfeld2017", label: "Schoenfeld 2017 每周组数剂量反应 meta 分析", url: "https://pubmed.ncbi.nlm.nih.gov/27433992/", use: "每周组数与增肌呈分级剂量反应（<5 / 5–9 / 10+ 三档的差异仅为趋势，P=0.074）" },
   { id: "heinecke2021", label: "Heinecke 2021 杠铃与哑铃卧推（同总重量）对比", url: "https://pubmed.ncbi.nlm.nih.gov/33666593/", use: "同样总重量下杠铃与双手哑铃的力竭次数高度相关（r=0.96），杠铃略多（13.8 vs 12.5）；互相预测 1RM 的总误差约 7–8%" },
   { id: "izquierdo2007", label: "Izquierdo 2007 停训与减量", url: "https://pubmed.ncbi.nlm.nih.gov/17685721/", use: "完全停训 4 周：最大力量下降 6–9%（受试者为受训男性）" },
   { id: "mujika2000", label: "Mujika & Padilla 2000 Detraining Part I", url: "https://pubmed.ncbi.nlm.nih.gov/10966148/", use: "定义停训不足 4 周为短期停训，期间力量下降有限" },
-  { id: "bodyos-plan", label: "Body OS 胸/背/腿三分化计划（本人 2026-10-25 确认）", url: "", use: "每周 3–4 次、至少约 48 小时间隔、胸→背→腿连续轮换" },
+  { id: "bodyos-plan", label: "Body OS 胸/背/腿三分化计划（本人 2026-10-25 确认）", url: "", use: "每周 3–4 次、至少约 48 小时间隔、胸→背→腿连续轮换；复训期余力 3–4、增肌期 2–3" },
 ]);
 
 const DAY_MS = 86400000;
@@ -77,6 +77,8 @@ export function exerciseAlternatives(exercise, catalog = [], { limit = 3, histor
 //    28 d we keep the last load and only ask for 2 reps in reserve. Past 28 d we apply Izquierdo 2007's upper
 //    bound (−9%, measured after 4 weeks of complete cessation) and ask for 3 reps in reserve. No first-hand
 //    data beyond 4 weeks was verified, so there is no further extrapolation and no interpolation either.
+// Reserve targets are the lower bounds of the user'"'"'s own plan (workout_recommendations: return stage RIR 3–4, building stage 2–3).
+export const RIR_RETURN = 3, RIR_BUILDING = 2;
 export const STALE_AFTER_DAYS = 28; // Mujika & Padilla: <4 weeks = short-term detraining
 export const DETRAINING_DISCOUNT = 0.09; // upper end of Izquierdo 2007's −6…−9% after 4 weeks
 export function detrainingDiscount(days) { return Number.isFinite(days) && days > STALE_AFTER_DAYS ? DETRAINING_DISCOUNT : 0; }
@@ -222,21 +224,21 @@ export function suggestWeight({ exercise, snapshot, catalog = [], now = Date.now
     const e1rm = Math.max(...own.filter((s) => latest.startedMs - s.startedMs <= 21 * DAY_MS).map((s) => s.e1rm));
     const reps = Math.min(12, Math.max(8, Number(targetReps) || latest.reps || 10));
     const stale = days > STALE_AFTER_DAYS;
-    const rir = days > STALE_AFTER_DAYS ? 3 : 2;
+    const rir = stale ? RIR_RETURN : RIR_BUILDING;
     const discount = detrainingDiscount(days);
     const kg = Math.min(roundToStep(loadForReps(e1rm * (1 - discount), reps, rir), step), Math.max(step, latest.topKg));
-    return { kind: stale ? "stale" : "history", kg, reps, days, discount, e1rmKg: Math.round(e1rm * 10) / 10, sourceIds: ["acsm2009", "izquierdo2007", "mujika2000"], rir: String(rir) };
+    return { kind: stale ? "stale" : "history", kg, reps, days, discount, e1rmKg: Math.round(e1rm * 10) / 10, sourceIds: ["acsm2009", "izquierdo2007", "mujika2000", "bodyos-plan"], rir: String(rir) };
   }
   const cross = crossExerciseEstimate({ exercise, snapshot, catalog, targets, nowMs });
   if (cross) {
-    const total = loadForReps(cross.e1rmTotalKg, 10, 3);
+    const total = loadForReps(cross.e1rmTotalKg, 10, RIR_RETURN);
     let kg = roundToStep(fromTotalLoad(total, exercise), step);
     const bar = equipmentGroup(exercise) === "barbell" && (exercise.loadMode || "total") === "total";
     const belowBar = bar && kg < OLYMPIC_BAR_KG;
     if (belowBar) kg = OLYMPIC_BAR_KG;
-    return { kind: "cross", kg, belowBar, totalKg: Math.round(total * 10) / 10, reps: 10, rir: "3", ...cross };
+    return { kind: "cross", kg, belowBar, totalKg: Math.round(total * 10) / 10, reps: 10, rir: String(RIR_RETURN), ...cross };
   }
-  return { kind: "none", kg: null, reps: 10, sourceIds: ["acsm2009"], rir: "3" };
+  return { kind: "none", kg: null, reps: 10, sourceIds: ["acsm2009", "bodyos-plan"], rir: String(RIR_RETURN) };
 }
 
 // ── Recovery planner for the user's chest / back / legs rotation ─────────────────────────
@@ -271,13 +273,14 @@ export function splitGroupOf(exercise, index = new Map()) {
   return null;
 }
 
-// Window constants and where each comes from:
-//  minHours 48        — Body OS plan: "至少约48小时的力量训练间隔" (also the backend's `next_due`).
-//  idealEndHours 84   — 3.5 d = 7 d / 2: the longest gap that still gives each muscle ≥2 sessions a week (ACSM 2026; Schoenfeld 2016).
-//  lateDays 7         — beyond a week a muscle only gets once-weekly stimulus.
-//  detrainDays 28     — Mujika & Padilla's short-term detraining boundary; Izquierdo measured −6…−9% at 4 weeks.
-//  weeklySetsTarget 10 — ACSM 2026 hypertrophy guidance (~10 sets per muscle group per week).
-export const RECOVERY = Object.freeze({ minHours: 48, idealEndHours: 84, lateDays: 7, detrainDays: 28, weeklySetsTarget: 10, minSetsToCount: 1, spacingDays: 2 });
+// Only sourced thresholds are used (no invented windows):
+//  minHours 48            — Body OS plan: "至少约48小时的力量训练间隔" (also the backend's `next_due`).
+//  detrainDays 28         — Mujika & Padilla 2000: under 4 weeks is short-term detraining; beyond it strength loss is measurable (Izquierdo 2007).
+//  weeklySetsTarget 10    — ACSM 2026: ~10 sets per muscle group per week for hypertrophy.
+//  weeklyFrequencyTarget 2 — ACSM 2026 / Schoenfeld 2016: train each major muscle group at least twice a week.
+// No source gives an individual "supercompensation peak", so none is shown: after 48 h a day is simply "ready",
+// and the page reports how far weekly frequency and sets are from the ACSM targets.
+export const RECOVERY = Object.freeze({ minHours: 48, detrainDays: 28, weeklySetsTarget: 10, weeklyFrequencyTarget: 2, minSetsToCount: 1, spacingDays: 2 });
 
 export function hardSetsByGroup(workout, index = new Map()) {
   const counts = { chest: 0, back: 0, legs: 0 };
@@ -292,10 +295,9 @@ export function hardSetsByGroup(workout, index = new Map()) {
 function statusFor(group, nowMs) {
   if (!group.lastMs) return { status: "never" };
   const hours = (nowMs - group.lastMs) / HOUR_MS;
-  const startMs = group.lastMs + RECOVERY.minHours * HOUR_MS, endMs = group.lastMs + RECOVERY.idealEndHours * HOUR_MS;
-  const status = hours < RECOVERY.minHours ? "recovering" : hours <= RECOVERY.idealEndHours ? "optimal" : hours <= RECOVERY.lateDays * 24 ? "ready"
-    : hours <= RECOVERY.detrainDays * 24 ? "late" : "detrain";
-  return { status, hours, startMs, endMs };
+  const startMs = group.lastMs + RECOVERY.minHours * HOUR_MS;
+  const status = hours < RECOVERY.minHours ? "recovering" : hours <= RECOVERY.detrainDays * 24 ? "ready" : "detrain";
+  return { status, hours, startMs };
 }
 
 export function recoveryPlan(snapshot, { now = Date.now() } = {}) {
@@ -304,13 +306,13 @@ export function recoveryPlan(snapshot, { now = Date.now() } = {}) {
   const workouts = (snapshot?.workoutHistory || [])
     .map((workout) => ({ workout, ms: Date.parse(normalizeTrainingTimestamp(workout.startedAt)) }))
     .filter((item) => Number.isFinite(item.ms) && item.ms <= nowMs).sort((a, b) => b.ms - a.ms);
-  const groups = Object.fromEntries(SPLIT_GROUPS.map((key) => [key, { key, lastMs: 0, lastSets: 0, weekSets: 0, monthSets: 0 }]));
+  const groups = Object.fromEntries(SPLIT_GROUPS.map((key) => [key, { key, lastMs: 0, lastSets: 0, weekSets: 0, weekSessions: 0, monthSets: 0 }]));
   for (const { workout, ms } of workouts) {
     const counts = hardSetsByGroup(workout, index);
     for (const key of SPLIT_GROUPS) {
       const sets = counts[key];
       if (!sets) continue;
-      if (nowMs - ms <= 7 * DAY_MS) groups[key].weekSets += sets;
+      if (nowMs - ms <= 7 * DAY_MS) { groups[key].weekSets += sets; groups[key].weekSessions += 1; }
       if (nowMs - ms <= 28 * DAY_MS) groups[key].monthSets += sets;
       if (!groups[key].lastMs && sets >= RECOVERY.minSetsToCount) { groups[key].lastMs = ms; groups[key].lastSets = sets; }
     }
@@ -321,7 +323,7 @@ export function recoveryPlan(snapshot, { now = Date.now() } = {}) {
   const pace = Math.min(maxPace, Math.max(minPace, Math.round(sessions28 / 4)));
   const list = SPLIT_GROUPS.map((key) => {
     const group = groups[key], state = statusFor(group, nowMs);
-    return { ...group, ...state, avgWeekSets: Math.round((group.monthSets / 4) * 10) / 10, weekSetsGap: Math.max(0, RECOVERY.weeklySetsTarget - group.weekSets), daysSince: group.lastMs ? Math.floor((nowMs - group.lastMs) / DAY_MS) : null };
+    return { ...group, ...state, avgWeekSets: Math.round((group.monthSets / 4) * 10) / 10, weekFrequencyGap: Math.max(0, RECOVERY.weeklyFrequencyTarget - group.weekSessions), weekSetsGap: Math.max(0, RECOVERY.weeklySetsTarget - group.weekSets), daysSince: group.lastMs ? Math.floor((nowMs - group.lastMs) / DAY_MS) : null };
   });
   // Body.OS publishes the same windows from the formal plan (recommendation.recovery); when present it is the authority.
   const backend = Array.isArray(rec.recovery?.groups) ? rec.recovery.groups : [];
@@ -329,7 +331,7 @@ export function recoveryPlan(snapshot, { now = Date.now() } = {}) {
     const remote = backend.find((entry) => entry.key === item.key);
     if (!remote) continue;
     const ms = (value) => (value ? Date.parse(value) : 0);
-    Object.assign(item, { status: remote.status, lastMs: ms(remote.lastAt), lastSets: remote.lastSets || 0, startMs: ms(remote.startAt), endMs: ms(remote.idealEndAt),
+    Object.assign(item, { status: remote.status, lastMs: ms(remote.lastAt), lastSets: remote.lastSets || 0, startMs: ms(remote.startAt), weekSessions: remote.weekSessions ?? item.weekSessions, weekFrequencyGap: Math.max(0, RECOVERY.weeklyFrequencyTarget - (remote.weekSessions ?? item.weekSessions)),
       hours: remote.hoursSince, weekSets: remote.weekSets, monthSets: remote.monthSets, avgWeekSets: remote.avgWeekSets, weekSetsGap: remote.weekSetsGap,
       daysSince: remote.hoursSince == null ? null : Math.floor(remote.hoursSince / 24) });
   }
