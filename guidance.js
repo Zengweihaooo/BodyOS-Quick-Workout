@@ -73,15 +73,13 @@ export function exerciseAlternatives(exercise, catalog = [], { limit = 3, histor
 //  • 1RM: Epley (the repo's estimated1rmKg), reps capped at 12.
 //  • Target load for `reps` with `rir` reps in reserve: e1RM / (1 + (reps + rir) / 30) — pure Epley
 //    algebra, no extra fudge factor. reps default 10 (inside ACSM 2009's 8–12RM novice range).
-//  • Layoff: Mujika & Padilla define <4 weeks as short-term detraining with limited strength decline, so up to
-//    28 d we keep the last load and only ask for 2 reps in reserve. Past 28 d we apply Izquierdo 2007's upper
-//    bound (−9%, measured after 4 weeks of complete cessation) and ask for 3 reps in reserve. No first-hand
-//    data beyond 4 weeks was verified, so there is no further extrapolation and no interpolation either.
+//  • Layoff: Mujika & Padilla (full text) report strength performance is largely retained for up to 4 weeks without training,
+//    so up to 28 d we keep the last load. Past 28 d no number is invented: we do not scale the weight by a percentage,
+//    we only start with the reserve of the user's own return stage (RIR 3). Izquierdo 2007 (abstract only) is cited as the
+//    reason for the caution (−6…−9% max strength after 4 weeks of complete cessation), not as a multiplier.
 // Reserve targets are the lower bounds of the user'"'"'s own plan (workout_recommendations: return stage RIR 3–4, building stage 2–3).
 export const RIR_RETURN = 3, RIR_BUILDING = 2;
 export const STALE_AFTER_DAYS = 28; // Mujika & Padilla: <4 weeks = short-term detraining
-export const DETRAINING_DISCOUNT = 0.09; // upper end of Izquierdo 2007's −6…−9% after 4 weeks
-export function detrainingDiscount(days) { return Number.isFinite(days) && days > STALE_AFTER_DAYS ? DETRAINING_DISCOUNT : 0; }
 export function loadForReps(e1rmKg, reps, rir) { return e1rmKg / (1 + (reps + rir) / 30); }
 
 function roundToStep(kg, step) { return Math.max(step, Math.round(kg / step) * step); }
@@ -198,7 +196,7 @@ export function crossExerciseEstimate({ exercise, snapshot, catalog = [], target
     else if (personal) { factor = targetClass === "stack" ? personal.ratio : 1 / personal.ratio; basis = "personal"; }
     else continue;
     sources.push({ id: item.id, name: item.name, canonicalNameEn: item.canonicalNameEn || "", basis, factor, days, trend: trendOf(sessions),
-      sessions: sessions.length, e1rmTotalKg: sessions[0].e1rm * (1 - detrainingDiscount(days)) * factor });
+      sessions: sessions.length, e1rmTotalKg: sessions[0].e1rm * factor });
   }
   if (!sources.length) return null;
   const e1rm = median(sources.map((x) => x.e1rmTotalKg));
@@ -225,9 +223,8 @@ export function suggestWeight({ exercise, snapshot, catalog = [], now = Date.now
     const reps = Math.min(12, Math.max(8, Number(targetReps) || latest.reps || 10));
     const stale = days > STALE_AFTER_DAYS;
     const rir = stale ? RIR_RETURN : RIR_BUILDING;
-    const discount = detrainingDiscount(days);
-    const kg = Math.min(roundToStep(loadForReps(e1rm * (1 - discount), reps, rir), step), Math.max(step, latest.topKg));
-    return { kind: stale ? "stale" : "history", kg, reps, days, discount, e1rmKg: Math.round(e1rm * 10) / 10, sourceIds: ["acsm2009", "izquierdo2007", "mujika2000", "bodyos-plan"], rir: String(rir) };
+    const kg = Math.min(roundToStep(loadForReps(e1rm, reps, rir), step), Math.max(step, latest.topKg));
+    return { kind: stale ? "stale" : "history", kg, reps, days, e1rmKg: Math.round(e1rm * 10) / 10, sourceIds: ["acsm2009", "izquierdo2007", "mujika2000", "bodyos-plan"], rir: String(rir) };
   }
   const cross = crossExerciseEstimate({ exercise, snapshot, catalog, targets, nowMs });
   if (cross) {

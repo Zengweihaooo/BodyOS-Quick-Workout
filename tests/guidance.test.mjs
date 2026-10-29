@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { FALLBACK_EXERCISES, historySourceLabel } from "../core.js";
-import { GUIDANCE_SOURCES, OLYMPIC_BAR_KG, RECOVERY, crossExerciseEstimate, fromTotalLoad, personalStackToFreeRatio, totalLoadKg, detrainingDiscount, equipmentGroup, exerciseAlternatives, loadForReps, recoveryPlan, splitGroupOf, suggestWeight } from "../guidance.js";
+import { GUIDANCE_SOURCES, OLYMPIC_BAR_KG, RECOVERY, crossExerciseEstimate, fromTotalLoad, personalStackToFreeRatio, totalLoadKg, equipmentGroup, exerciseAlternatives, loadForReps, recoveryPlan, splitGroupOf, suggestWeight } from "../guidance.js";
 
 const catalog = FALLBACK_EXERCISES.map((row) => ({ ...row }));
 const targets = JSON.parse(readFileSync(new URL("../catalog/muscle-targets.json", import.meta.url))).items;
@@ -37,12 +37,13 @@ test("alternatives share the dataset target muscle, differ in gear, and never re
   assert.deepEqual(exerciseAlternatives(null, catalog), []);
 });
 
-test("detraining discount is a single verified step: none up to 28 days, 9% after", () => {
-  assert.equal(detrainingDiscount(0), 0);
-  assert.equal(detrainingDiscount(28), 0);
-  assert.equal(detrainingDiscount(29), 0.09);
-  assert.equal(detrainingDiscount(500), 0.09);
+test("no percentage layoff discount: only the 28-day boundary and the plan's reserve change", () => {
   assert.ok(Math.abs(loadForReps(100, 10, 0) - 75) < 1e-9);
+  const ex = byId("barbell_bench_press");
+  const at = (d) => suggestWeight({ exercise: ex, catalog, now: NOW, snapshot: { workoutHistory: [workout(d, [["barbell_bench_press", "x", [[60, 10]]]])] } });
+  assert.equal(at(28).kind, "history"); assert.equal(at(28).rir, "2");
+  assert.equal(at(29).kind, "stale"); assert.equal(at(29).rir, "3");
+  assert.equal(at(29).discount, undefined);
 });
 
 test("suggest weight: ≤4-week history is reused, stale history is discounted with more reserve, none gives no number", () => {
