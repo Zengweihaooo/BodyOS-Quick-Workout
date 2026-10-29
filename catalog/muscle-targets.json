@@ -1,0 +1,868 @@
+{
+ "schemaVersion": "body.os.muscle-targets.v1",
+ "source": "https://github.com/hasaneyldrm/exercises-dataset",
+ "count": 95,
+ "items": {
+  "archer_pull_up": {
+   "datasetId": "3293",
+   "target": "lats",
+   "secondary": [
+    "biceps",
+    "forearms"
+   ],
+   "datasetEquipment": "body weight"
+  },
+  "arm_down_back_machine": {
+   "datasetId": "2285",
+   "target": "lats",
+   "secondary": [
+    "triceps",
+    "shoulders"
+   ],
+   "datasetEquipment": "leverage machine"
+  },
+  "arnold_press": {
+   "datasetId": "2137",
+   "target": "delts",
+   "secondary": [
+    "triceps",
+    "upper chest"
+   ],
+   "datasetEquipment": "dumbbell"
+  },
+  "assisted_close_grip_pull_up": {
+   "datasetId": "0015",
+   "target": "lats",
+   "secondary": [
+    "biceps",
+    "forearms"
+   ],
+   "datasetEquipment": "leverage machine"
+  },
+  "back_extension": {
+   "datasetId": "0489",
+   "target": "spine",
+   "secondary": [
+    "glutes",
+    "hamstrings"
+   ],
+   "datasetEquipment": "body weight"
+  },
+  "barbell_back_squat": {
+   "datasetId": "0043",
+   "target": "glutes",
+   "secondary": [
+    "quadriceps",
+    "hamstrings",
+    "calves",
+    "core"
+   ],
+   "datasetEquipment": "barbell"
+  },
+  "barbell_bench_press": {
+   "datasetId": "0025",
+   "target": "pectorals",
+   "secondary": [
+    "triceps",
+    "shoulders"
+   ],
+   "datasetEquipment": "barbell"
+  },
+  "barbell_biceps_curl": {
+   "datasetId": "0031",
+   "target": "biceps",
+   "secondary": [
+    "forearms"
+   ],
+   "datasetEquipment": "barbell"
+  },
+  "barbell_incline_bench_press": {
+   "datasetId": "0047",
+   "target": "pectorals",
+   "secondary": [
+    "shoulders",
+    "triceps"
+   ],
+   "datasetEquipment": "barbell"
+  },
+  "barbell_row": {
+   "datasetId": "0027",
+   "target": "upper back",
+   "secondary": [
+    "biceps",
+    "forearms"
+   ],
+   "datasetEquipment": "barbell"
+  },
+  "bulgarian_split_squat": {
+   "datasetId": "0410",
+   "target": "quads",
+   "secondary": [
+    "glutes",
+    "hamstrings",
+    "calves"
+   ],
+   "datasetEquipment": "dumbbell"
+  },
+  "cable_chest_fly": {
+   "datasetId": "0155",
+   "target": "pectorals",
+   "secondary": [
+    "deltoids",
+    "triceps"
+   ],
+   "datasetEquipment": "cable"
+  },
+  "cable_external_rotation": {
+   "datasetId": "0235",
+   "target": "delts",
+   "secondary": [
+    "rotator cuff",
+    "trapezius"
+   ],
+   "datasetEquipment": "cable"
+  },
+  "cable_front_raise": {
+   "datasetId": "0162",
+   "target": "delts",
+   "secondary": [
+    "triceps",
+    "forearms"
+   ],
+   "datasetEquipment": "cable"
+  },
+  "cable_kneeling_crunch": {
+   "datasetId": "0175",
+   "target": "abs",
+   "secondary": [
+    "obliques"
+   ],
+   "datasetEquipment": "cable"
+  },
+  "cable_lateral_raise": {
+   "datasetId": "0178",
+   "target": "delts",
+   "secondary": [
+    "traps",
+    "triceps"
+   ],
+   "datasetEquipment": "cable"
+  },
+  "cable_pullover": {
+   "datasetId": "0184",
+   "target": "lats",
+   "secondary": [
+    "triceps",
+    "shoulders"
+   ],
+   "datasetEquipment": "cable"
+  },
+  "cable_woodchop": {
+   "datasetId": "0243",
+   "target": "abs",
+   "secondary": [
+    "obliques"
+   ],
+   "datasetEquipment": "cable"
+  },
+  "chest_supported_dumbbell_row": {
+   "datasetId": "0327",
+   "target": "upper back",
+   "secondary": [
+    "biceps",
+    "shoulders"
+   ],
+   "datasetEquipment": "dumbbell"
+  },
+  "chin_up": {
+   "datasetId": "1326",
+   "target": "lats",
+   "secondary": [
+    "biceps",
+    "forearms"
+   ],
+   "datasetEquipment": "body weight"
+  },
+  "close_grip_lat_pulldown": {
+   "datasetId": "2616",
+   "target": "lats",
+   "secondary": [
+    "biceps",
+    "forearms"
+   ],
+   "datasetEquipment": "cable"
+  },
+  "close_grip_seated_row": {
+   "datasetId": "0861",
+   "target": "upper back",
+   "secondary": [
+    "biceps",
+    "forearms"
+   ],
+   "datasetEquipment": "cable"
+  },
+  "dead_bug": {
+   "datasetId": "0276",
+   "target": "abs",
+   "secondary": [
+    "hip flexors",
+    "lower back"
+   ],
+   "datasetEquipment": "body weight"
+  },
+  "deadlift": {
+   "datasetId": "0032",
+   "target": "glutes",
+   "secondary": [
+    "hamstrings",
+    "lower back"
+   ],
+   "datasetEquipment": "barbell"
+  },
+  "dip": {
+   "datasetId": "0251",
+   "target": "pectorals",
+   "secondary": [
+    "triceps",
+    "shoulders"
+   ],
+   "datasetEquipment": "body weight"
+  },
+  "dumbbell_biceps_curl": {
+   "datasetId": "0294",
+   "target": "biceps",
+   "secondary": [
+    "forearms"
+   ],
+   "datasetEquipment": "dumbbell"
+  },
+  "dumbbell_flat_chest_press": {
+   "datasetId": "0289",
+   "target": "pectorals",
+   "secondary": [
+    "triceps",
+    "shoulders"
+   ],
+   "datasetEquipment": "dumbbell"
+  },
+  "dumbbell_front_raise": {
+   "datasetId": "0310",
+   "target": "delts",
+   "secondary": [
+    "biceps",
+    "trapezius"
+   ],
+   "datasetEquipment": "dumbbell"
+  },
+  "dumbbell_incline_chest_press": {
+   "datasetId": "0314",
+   "target": "pectorals",
+   "secondary": [
+    "shoulders",
+    "triceps"
+   ],
+   "datasetEquipment": "dumbbell"
+  },
+  "dumbbell_neutral_grip_bench_press": {
+   "datasetId": "0352",
+   "target": "triceps",
+   "secondary": [
+    "chest",
+    "shoulders"
+   ],
+   "datasetEquipment": "dumbbell"
+  },
+  "dumbbell_pullover": {
+   "datasetId": "0375",
+   "target": "pectorals",
+   "secondary": [
+    "latissimus dorsi",
+    "triceps"
+   ],
+   "datasetEquipment": "dumbbell"
+  },
+  "dumbbell_shrug": {
+   "datasetId": "0406",
+   "target": "traps",
+   "secondary": [
+    "shoulders"
+   ],
+   "datasetEquipment": "dumbbell"
+  },
+  "elliptical_low_intensity": {
+   "datasetId": "2141",
+   "target": "cardiovascular system",
+   "secondary": [
+    "quadriceps",
+    "hamstrings",
+    "glutes",
+    "calves"
+   ],
+   "datasetEquipment": "elliptical machine"
+  },
+  "face_pull": {
+   "datasetId": "0203",
+   "target": "delts",
+   "secondary": [
+    "trapezius",
+    "rhomboids",
+    "biceps"
+   ],
+   "datasetEquipment": "cable"
+  },
+  "farmers_walk": {
+   "datasetId": "2133",
+   "target": "quads",
+   "secondary": [
+    "calves",
+    "forearms",
+    "core"
+   ],
+   "datasetEquipment": "dumbbell"
+  },
+  "front_plank": {
+   "datasetId": "0464",
+   "target": "abs",
+   "secondary": [
+    "obliques",
+    "shoulders"
+   ],
+   "datasetEquipment": "body weight"
+  },
+  "goblet_squat": {
+   "datasetId": "1760",
+   "target": "quads",
+   "secondary": [
+    "glutes",
+    "hamstrings",
+    "calves"
+   ],
+   "datasetEquipment": "dumbbell"
+  },
+  "hack_squat": {
+   "datasetId": "0743",
+   "target": "glutes",
+   "secondary": [
+    "quadriceps",
+    "hamstrings",
+    "calves"
+   ],
+   "datasetEquipment": "sled machine"
+  },
+  "hammer_curl": {
+   "datasetId": "0313",
+   "target": "biceps",
+   "secondary": [
+    "forearms"
+   ],
+   "datasetEquipment": "dumbbell"
+  },
+  "high_row_machine": {
+   "datasetId": "0581",
+   "target": "upper back",
+   "secondary": [
+    "biceps",
+    "rear deltoids"
+   ],
+   "datasetEquipment": "leverage machine"
+  },
+  "hip_thrust": {
+   "datasetId": "1409",
+   "target": "glutes",
+   "secondary": [
+    "hamstrings",
+    "lower back"
+   ],
+   "datasetEquipment": "barbell"
+  },
+  "incline_chest_press": {
+   "datasetId": "1299",
+   "target": "pectorals",
+   "secondary": [
+    "shoulders",
+    "triceps"
+   ],
+   "datasetEquipment": "leverage machine"
+  },
+  "incline_dumbbell_row": {
+   "datasetId": "1330",
+   "target": "upper back",
+   "secondary": [
+    "biceps",
+    "shoulders"
+   ],
+   "datasetEquipment": "dumbbell"
+  },
+  "incline_side_plank": {
+   "datasetId": "3544",
+   "target": "abs",
+   "secondary": [
+    "obliques",
+    "shoulders"
+   ],
+   "datasetEquipment": "body weight"
+  },
+  "incline_treadmill_walk": {
+   "datasetId": "3666",
+   "target": "cardiovascular system",
+   "secondary": [
+    "quadriceps",
+    "hamstrings",
+    "calves"
+   ],
+   "datasetEquipment": "leverage machine"
+  },
+  "inverted_row": {
+   "datasetId": "0499",
+   "target": "upper back",
+   "secondary": [
+    "biceps",
+    "forearms"
+   ],
+   "datasetEquipment": "body weight"
+  },
+  "jump_rope": {
+   "datasetId": "2612",
+   "target": "cardiovascular system",
+   "secondary": [
+    "calves",
+    "quadriceps",
+    "hamstrings",
+    "glutes"
+   ],
+   "datasetEquipment": "rope"
+  },
+  "landmine_press": {
+   "datasetId": "0424",
+   "target": "delts",
+   "secondary": [
+    "triceps",
+    "core"
+   ],
+   "datasetEquipment": "dumbbell"
+  },
+  "lateral_bench_press_machine": {
+   "datasetId": "0576",
+   "target": "pectorals",
+   "secondary": [
+    "triceps",
+    "shoulders"
+   ],
+   "datasetEquipment": "leverage machine"
+  },
+  "leg_curl": {
+   "datasetId": "0599",
+   "target": "hamstrings",
+   "secondary": [
+    "calves"
+   ],
+   "datasetEquipment": "leverage machine"
+  },
+  "leg_extension": {
+   "datasetId": "0585",
+   "target": "quads",
+   "secondary": [
+    "hamstrings"
+   ],
+   "datasetEquipment": "leverage machine"
+  },
+  "leg_press": {
+   "datasetId": "0739",
+   "target": "glutes",
+   "secondary": [
+    "quadriceps",
+    "hamstrings",
+    "calves"
+   ],
+   "datasetEquipment": "sled machine"
+  },
+  "machine_chest_press": {
+   "datasetId": "0577",
+   "target": "pectorals",
+   "secondary": [
+    "triceps",
+    "shoulders"
+   ],
+   "datasetEquipment": "leverage machine"
+  },
+  "machine_lateral_raise": {
+   "datasetId": "0584",
+   "target": "delts",
+   "secondary": [
+    "traps",
+    "upper back"
+   ],
+   "datasetEquipment": "leverage machine"
+  },
+  "machine_reverse_fly": {
+   "datasetId": "0602",
+   "target": "delts",
+   "secondary": [
+    "trapezius",
+    "rhomboids"
+   ],
+   "datasetEquipment": "leverage machine"
+  },
+  "machine_row": {
+   "datasetId": "1350",
+   "target": "upper back",
+   "secondary": [
+    "biceps",
+    "forearms"
+   ],
+   "datasetEquipment": "leverage machine"
+  },
+  "meadows_row": {
+   "datasetId": "0064",
+   "target": "upper back",
+   "secondary": [
+    "biceps",
+    "forearms"
+   ],
+   "datasetEquipment": "barbell"
+  },
+  "mountain_climber": {
+   "datasetId": "0630",
+   "target": "cardiovascular system",
+   "secondary": [
+    "core",
+    "shoulders",
+    "triceps"
+   ],
+   "datasetEquipment": "body weight"
+  },
+  "neutral_grip_lat_pulldown": {
+   "datasetId": "0818",
+   "target": "lats",
+   "secondary": [
+    "biceps",
+    "rhomboids",
+    "rear deltoids"
+   ],
+   "datasetEquipment": "cable"
+  },
+  "neutral_grip_pull_up": {
+   "datasetId": "0651",
+   "target": "lats",
+   "secondary": [
+    "biceps",
+    "forearms"
+   ],
+   "datasetEquipment": "body weight"
+  },
+  "one_arm_dumbbell_row": {
+   "datasetId": "0293",
+   "target": "upper back",
+   "secondary": [
+    "biceps",
+    "forearms"
+   ],
+   "datasetEquipment": "dumbbell"
+  },
+  "overhead_triceps_extension": {
+   "datasetId": "0430",
+   "target": "triceps",
+   "secondary": [
+    "shoulders"
+   ],
+   "datasetEquipment": "dumbbell"
+  },
+  "pallof_press": {
+   "datasetId": "0979",
+   "target": "abs",
+   "secondary": [
+    "obliques",
+    "glutes"
+   ],
+   "datasetEquipment": "band"
+  },
+  "pec_deck": {
+   "datasetId": "0596",
+   "target": "pectorals",
+   "secondary": [
+    "deltoids",
+    "trapezius"
+   ],
+   "datasetEquipment": "leverage machine"
+  },
+  "pendlay_row": {
+   "datasetId": "3017",
+   "target": "upper back",
+   "secondary": [
+    "biceps",
+    "forearms"
+   ],
+   "datasetEquipment": "barbell"
+  },
+  "preacher_curl": {
+   "datasetId": "0070",
+   "target": "biceps",
+   "secondary": [
+    "forearms"
+   ],
+   "datasetEquipment": "barbell"
+  },
+  "pull_up": {
+   "datasetId": "0652",
+   "target": "lats",
+   "secondary": [
+    "biceps",
+    "forearms"
+   ],
+   "datasetEquipment": "body weight"
+  },
+  "push_up": {
+   "datasetId": "0662",
+   "target": "pectorals",
+   "secondary": [
+    "triceps",
+    "deltoids",
+    "core"
+   ],
+   "datasetEquipment": "body weight"
+  },
+  "rear_delt_fly_machine": {
+   "datasetId": "0601",
+   "target": "delts",
+   "secondary": [
+    "trapezius",
+    "rhomboids"
+   ],
+   "datasetEquipment": "leverage machine"
+  },
+  "reverse_crunch": {
+   "datasetId": "0872",
+   "target": "abs",
+   "secondary": [
+    "hip flexors"
+   ],
+   "datasetEquipment": "body weight"
+  },
+  "romanian_deadlift": {
+   "datasetId": "0085",
+   "target": "glutes",
+   "secondary": [
+    "hamstrings",
+    "lower back"
+   ],
+   "datasetEquipment": "barbell"
+  },
+  "seated_bent_over_reverse_fly": {
+   "datasetId": "0380",
+   "target": "delts",
+   "secondary": [
+    "traps",
+    "rhomboids"
+   ],
+   "datasetEquipment": "dumbbell"
+  },
+  "seated_cable_row": {
+   "datasetId": "0239",
+   "target": "upper back",
+   "secondary": [
+    "biceps",
+    "forearms",
+    "shoulders"
+   ],
+   "datasetEquipment": "cable"
+  },
+  "seated_calf_raise": {
+   "datasetId": "0594",
+   "target": "calves",
+   "secondary": [
+    "soleus",
+    "ankle stabilizers"
+   ],
+   "datasetEquipment": "leverage machine"
+  },
+  "seated_dumbbell_lateral_raise": {
+   "datasetId": "0396",
+   "target": "delts",
+   "secondary": [
+    "traps",
+    "upper back"
+   ],
+   "datasetEquipment": "dumbbell"
+  },
+  "seated_dumbbell_shoulder_press": {
+   "datasetId": "0405",
+   "target": "delts",
+   "secondary": [
+    "triceps",
+    "upper back"
+   ],
+   "datasetEquipment": "dumbbell"
+  },
+  "shrug": {
+   "datasetId": "0095",
+   "target": "traps",
+   "secondary": [
+    "shoulders"
+   ],
+   "datasetEquipment": "barbell"
+  },
+  "single_arm_cable_lateral_raise": {
+   "datasetId": "0192",
+   "target": "delts",
+   "secondary": [
+    "traps",
+    "triceps"
+   ],
+   "datasetEquipment": "cable"
+  },
+  "single_arm_cable_row": {
+   "datasetId": "0189",
+   "target": "upper back",
+   "secondary": [
+    "biceps",
+    "forearms"
+   ],
+   "datasetEquipment": "cable"
+  },
+  "single_arm_lat_pulldown": {
+   "datasetId": "3563",
+   "target": "lats",
+   "secondary": [
+    "biceps",
+    "forearms"
+   ],
+   "datasetEquipment": "cable"
+  },
+  "skull_crusher": {
+   "datasetId": "0061",
+   "target": "triceps",
+   "secondary": [
+    "shoulders"
+   ],
+   "datasetEquipment": "barbell"
+  },
+  "standing_calf_raise": {
+   "datasetId": "0605",
+   "target": "calves",
+   "secondary": [
+    "soleus",
+    "ankle stabilizers"
+   ],
+   "datasetEquipment": "leverage machine"
+  },
+  "standing_dumbbell_lateral_raise": {
+   "datasetId": "0334",
+   "target": "delts",
+   "secondary": [
+    "traps"
+   ],
+   "datasetEquipment": "dumbbell"
+  },
+  "stationary_bike_low_intensity": {
+   "datasetId": "2138",
+   "target": "cardiovascular system",
+   "secondary": [
+    "quadriceps",
+    "hamstrings",
+    "calves"
+   ],
+   "datasetEquipment": "stationary bike"
+  },
+  "straight_arm_pulldown": {
+   "datasetId": "0238",
+   "target": "lats",
+   "secondary": [
+    "shoulders",
+    "biceps"
+   ],
+   "datasetEquipment": "cable"
+  },
+  "sumo_deadlift": {
+   "datasetId": "0117",
+   "target": "glutes",
+   "secondary": [
+    "hamstrings",
+    "quadriceps",
+    "lower back"
+   ],
+   "datasetEquipment": "barbell"
+  },
+  "t_bar_row": {
+   "datasetId": "0606",
+   "target": "upper back",
+   "secondary": [
+    "biceps",
+    "forearms"
+   ],
+   "datasetEquipment": "leverage machine"
+  },
+  "triceps_pushdown": {
+   "datasetId": "0200",
+   "target": "triceps",
+   "secondary": [
+    "forearms"
+   ],
+   "datasetEquipment": "cable"
+  },
+  "underhand_barbell_row": {
+   "datasetId": "0118",
+   "target": "upper back",
+   "secondary": [
+    "biceps",
+    "forearms"
+   ],
+   "datasetEquipment": "barbell"
+  },
+  "underhand_lat_pulldown": {
+   "datasetId": "0245",
+   "target": "lats",
+   "secondary": [
+    "biceps",
+    "forearms"
+   ],
+   "datasetEquipment": "cable"
+  },
+  "walking_lunge": {
+   "datasetId": "1460",
+   "target": "glutes",
+   "secondary": [
+    "quadriceps",
+    "hamstrings",
+    "calves"
+   ],
+   "datasetEquipment": "body weight"
+  },
+  "wide_grip_lat_pulldown": {
+   "datasetId": "0197",
+   "target": "lats",
+   "secondary": [
+    "biceps",
+    "forearms"
+   ],
+   "datasetEquipment": "cable"
+  },
+  "wide_grip_lat_pulldown_machine": {
+   "datasetId": "0579",
+   "target": "lats",
+   "secondary": [
+    "biceps",
+    "rhomboids",
+    "rear deltoids"
+   ],
+   "datasetEquipment": "leverage machine"
+  },
+  "wide_grip_pull_up": {
+   "datasetId": "1429",
+   "target": "lats",
+   "secondary": [
+    "biceps",
+    "forearms"
+   ],
+   "datasetEquipment": "body weight"
+  },
+  "wide_grip_seated_row": {
+   "datasetId": "0218",
+   "target": "upper back",
+   "secondary": [
+    "biceps",
+    "forearms"
+   ],
+   "datasetEquipment": "cable"
+  }
+ }
+}

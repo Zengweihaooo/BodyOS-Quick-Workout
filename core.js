@@ -733,6 +733,7 @@ export function snapshotFromWorkoutUploads(rows = []) {
         reps: set.reps,
         completed: set.completed === false || set.completed === 0 ? 0 : 1,
         load_mode: set.loadMode || set.load_mode,
+        weight_basis: set.weightBasis || set.weight_basis,
         rir: set.rir,
         rpe: set.rpe,
         calculated_volume: calculateSetVolume(set, session.bodyWeightKg),
@@ -1064,7 +1065,7 @@ export function augmentTrainingSnapshot(history, row) {
 }
 
 export function canRefreshTrainingScreen(screen, hasFocusedInput = false) {
-  return !hasFocusedInput && ["home", "recommendation", "history", "cloud"].includes(screen);
+  return !hasFocusedInput && ["home", "recommendation", "recovery", "history", "cloud"].includes(screen);
 }
 
 export function recommendationFreshness(snapshot, online, nowMs = Date.now()) {

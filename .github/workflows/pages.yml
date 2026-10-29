@@ -30,7 +30,7 @@ jobs:
       - name: Assemble static site
         run: |
           mkdir -p _site
-          cp index.html styles.css app.js core.js supabase.js wger-library.js icon.svg manifest.webmanifest sw.js _site/
+          cp index.html styles.css app.js core.js supabase.js wger-library.js guidance.js icon.svg manifest.webmanifest sw.js _site/
           cp -R catalog _site/catalog
           cp .nojekyll _site/.nojekyll
 

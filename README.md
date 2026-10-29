@@ -58,6 +58,16 @@ ChatGPT subscription through local Codex. The Mac receives this owner-scoped
 choice and recomputes advice; it must be online. Subscription access uses Codex
 plan limits and never silently falls back to a paid API.
 
+### 替代动作、建议重量与恢复规划（2026-10-29）
+
+逻辑集中在 [`guidance.js`](guidance.js)（纯函数，`tests/guidance.test.mjs`）。同源挂载时 Body.OS 直接读本目录，无需改后端。
+- **替代动作**：动作库每张卡片、录入页可展开 ≤3 个替代。借鉴 [hasaneyldrm/exercises-dataset](https://github.com/hasaneyldrm/exercises-dataset)（23k★）的细分 `target` 肌群：`scripts/build_muscle_targets.py` 生成 `catalog/muscle-targets.json`（95 个动作已对应）；替代项必须同目标肌、优先换器材。3 个尚无可核对数据集条目的器械型号（Supine Press、Converging Shoulder Press、俯身哑铃臂屈伸）回退到“同类别 + 同动作模式”。
+- **建议重量**（仅供参考；Body.OS 规则计划仍不估 1RM、不编重量）：无本动作历史，或距上次 >28 天时在录入页给出建议。1RM 用已有的 Epley；目标 10 次（ACSM 2009 新手 8–12RM）并留 2–3 次余力，纯 Epley 代数反推，无额外系数。停训：Mujika & Padilla 把 <4 周定为短期停训（力量下降有限），所以 ≤28 天沿用上次重量、留 2 次余力；>28 天取 Izquierdo 2007 完全停训 4 周的 −6…−9% 的上限 9%，并留 3 次余力。没有插值，>4 周没有核实到一手数据，不外推。无本动作历史时只参考同肌群、同口径动作的 1RM 反推，并提示不同器械无法精确换算；再没有就只给 RIR 指引。
+- **跨动作换算（统一标准）**：没练过的动作，按你练过的同目标肌动作推荐起点。所有比较统一用“总外部重量 kg”：哑铃每手重量 ×2，每侧配重 ×2（杠铃另加 20 kg 空杆），辅助类不参与，磅自动换 kg。杠铃↔哑铃按同样总重量对等（Heinecke 2021：力竭次数 r=0.96，预测 1RM 总误差约 7–8%）；器械↔自由重量没有可靠的通用系数，只用你自己两类动作都练过的配对数据算比例，没有配对就不给数字。取最近一次的最好成绩，并显示该动作近期是上升/持平/回落；杠铃推荐不低于空杆。推荐值在录入页和历史页标“推荐值 · 非实测”，实测记录标“实测”；以推荐重量起手并保存的第一组会记 `weightBasis=suggested`。
+- **恢复规划**（首页“恢复规划”）：按本人的胸/背/腿三分化（`dayPlans` 中的动作归属，缺失时按名称），严格轮换、隔日一练、每周 3–4 次。窗口：≥48 小时（Body.OS 计划里本人已采用的间隔）；84 小时 = 3.5 天，是仍能保证每肌群每周 2 次的最长间隔（ACSM 2026、Schoenfeld 2016）；>7 天只剩每周 1 次；>4 周进入停训区。每组近 7 天组数对照 ACSM 2026 的约 10 组/周。同一套窗口也由 Body.OS 后端 `workout_recommendations.build_recovery` 按正式计划计算，并随训练快照发布（`recommendation.recovery`）；页面优先使用后端值，缺失时本地计算。文献没有个人化的“超量恢复峰值”，所以“最佳窗口”是上述规则的推论。
+- 出处与核实状态见规划页“规则与出处”。已移除未能一手核实的引用（McMaster 2013 的“7 周约 15%”）。
+- 数据仍来自 Supabase 训练快照，GitHub Pages 与 Body.OS 同源挂载共用同一份逻辑。Arch 的 `peer-code/storage/runtime/quick-workout` 同步副本需把 `guidance.js` 与 `catalog/muscle-targets.json` 一并同步。
+
 ### Exercise catalog review (2026-10-21)
 
 Built-in picker categories use canonical IDs rather than display-name substring matching, so language changes cannot move an exercise between groups. Categories are browsing groups rather than an exclusive list of muscles worked: dips remain under chest, face pulls under back, back extensions under legs, and loaded carries under Other.
