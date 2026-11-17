@@ -1,5 +1,5 @@
 import { WgerLibrary, searchWgerCatalog } from "./wger-library.js?v=2";
-import { exerciseHistorySessionCounts, historySourceLabel, createCustomExercise, validExercisePhoto, exerciseSearchMatches, EXERCISE_CATALOG_VERSION, exerciseGuide, exerciseCategory, bodyLibraryExercise, formatTrainingDate, canRefreshTrainingScreen, recommendationFreshness, shouldUploadFinishedSession, createSerialTaskQueue, EXERCISE_REFERENCES, FALLBACK_EXERCISES, LOAD_LABELS, PICKER_ALPHABET, adjustRest, applyRecordingMode, buildBodyCandidate, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createExport, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, groupPickerCatalogByLetter, lookupExerciseDefault, mergeExerciseCatalog, mergeOwnerExerciseCatalog, nextSetDraft, normalizeSet, pickerLetterTarget, rankPickerExercises, recordingModeForSet, resolveCatalogExerciseId, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise, aggregateLiftPoints, displayLiftKg, liftChartMarkup, liftPointDetailMarkup, lookbackLiftDeltas, progressSeriesForExercise, gripVariantFor, snapshotWithCoreFinishers } from "./core.js?v=32";
+import { exerciseHistorySessionCounts, historySourceLabel, createCustomExercise, validExercisePhoto, exerciseSearchMatches, EXERCISE_CATALOG_VERSION, exerciseGuide, exerciseCategory, bodyLibraryExercise, formatTrainingDate, canRefreshTrainingScreen, recommendationFreshness, shouldUploadFinishedSession, createSerialTaskQueue, EXERCISE_REFERENCES, FALLBACK_EXERCISES, LOAD_LABELS, PICKER_ALPHABET, adjustRest, applyRecordingMode, buildBodyCandidate, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createExport, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, groupPickerCatalogByLetter, lookupExerciseDefault, mergeExerciseCatalog, mergeOwnerExerciseCatalog, nextSetDraft, normalizeSet, pickerLetterTarget, rankPickerExercises, recordingModeForSet, resolveCatalogExerciseId, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise, aggregateLiftPoints, displayLiftKg, liftChartMarkup, liftPointDetailMarkup, lookbackLiftDeltas, progressSeriesForExercise, gripVariantFor, snapshotWithCoreFinishers, withCoreFinisher, autoFinishPlan } from "./core.js?v=33";
 import { GUIDANCE_SOURCES, RECOVERY, SPLIT_LABELS, exerciseAlternatives, recoveryPlan, suggestWeight } from "./guidance.js?v=7";
 import { saveAIChoice, fetchTrainingSnapshot, migrateSupabaseConfig, normalizeSupabaseConfig, refreshSession, sessionIsFresh, signInWithPassword, uploadWorkout } from "./supabase.js?v=12";
 
@@ -17,17 +17,13 @@ const DEFAULT_REST_SECONDS = 120;
 const safeExternalUrl = (value, kind) => { try { const url = new URL(String(value || "")); if (url.protocol !== "https:" || (url.port && url.port !== "443") || url.username || url.password) return ""; if (kind === "dataset") return url.hostname === "raw.githubusercontent.com" && url.pathname.startsWith("/hasaneyldrm/exercises-dataset/") ? url.href : ""; if (kind === "wger") return url.hostname === "wger.de" && (/^\/en\/exercise\/\d+\/?$/.test(url.pathname) || url.pathname.startsWith("/media/exercise-video/")) ? url.href : ""; } catch {} return ""; };
 const enrichExercise = (item) => ({ ...item, reference: EXERCISE_REFERENCES[canonicalExerciseId(item.id)] || item.reference || null, catalogVersion: EXERCISE_CATALOG_VERSION });
 const BASE_EXERCISES = FALLBACK_EXERCISES.map(enrichExercise).filter((item, index, items) => items.findIndex((other) => other.id === item.id) === index);
-const TRAINING_PRESETS = [
-  { key: "shoulder_complete", group: "shoulders", title: "肩部组合模板", titleEn: "Shoulder template", note: "4 + 3 + 4 + 3，共 14 组", noteEn: "4 + 3 + 4 + 3, 14 sets total", ids: ["single_arm_cable_lateral_raise","seated_dumbbell_lateral_raise","machine_reverse_fly","face_pull"], sets: { single_arm_cable_lateral_raise: 4, seated_dumbbell_lateral_raise: 3, machine_reverse_fly: 4, face_pull: 3 } },
-  { key: "shoulder_low_trap", group: "shoulders", title: "低斜方参与", note: "中束 · 后束 · 前束 · 肩袖", ids: ["single_arm_cable_lateral_raise","seated_bent_over_reverse_fly","cable_front_raise","cable_external_rotation"] },
-  { key: "shoulder_after_chest", group: "shoulders", title: "胸后肩部", note: "避开重复推举", ids: ["single_arm_cable_lateral_raise","seated_bent_over_reverse_fly","cable_external_rotation"] },
-  { key: "core_stability", group: "core", title: "核心稳定", note: "抗伸展 · 抗旋转 · 抗侧屈", ids: ["dead_bug","pallof_press","incline_side_plank"] },
-  { key: "core_hypertrophy", group: "core", title: "核心增肌", note: "负重屈曲 · 下腹 · 抗旋转", ids: ["cable_kneeling_crunch","reverse_crunch","pallof_press"] },
-  { key: "cardio_zone2", group: "cardio", title: "Zone 2", note: "自行车或椭圆机 25–30 分钟", ids: ["stationary_bike_low_intensity","elliptical_low_intensity"] },
-  { key: "cardio_intervals", group: "cardio", title: "短间歇", note: "每周最多一次", ids: ["incline_treadmill_walk","mountain_climber"] },
-  { key: "chest_balanced", group: "chest", title: "胸部平衡", note: "平板推 · 上斜推 · 夹胸", ids: ["dumbbell_flat_chest_press","dumbbell_incline_chest_press","cable_chest_fly"] },
-  { key: "back_complete", group: "back", title: "背部完整", note: "垂直拉 · 水平拉 · 肩伸展", ids: ["assisted_close_grip_pull_up","neutral_grip_lat_pulldown","machine_row","straight_arm_pulldown"] },
-];
+// Current Body.OS chest / back / legs split. Used when no synced snapshot is available;
+// a synced snapshot's dayPlans always win.
+const DEFAULT_DAY_PLANS = [
+  { rotationKey: "chest", title: "胸日 · 胸＋中束＋三头", exercises: [{ exerciseId: "machine_chest_press", name: "器械推胸", sets: 2, minReps: 8, maxReps: 12 }, { exerciseId: "pec_deck", name: "蝴蝶机夹胸", sets: 2, minReps: 10, maxReps: 15 }, { exerciseId: "machine_lateral_raise", name: "侧平举器械", sets: 2, minReps: 12, maxReps: 20 }, { exerciseId: "triceps_pushdown", name: "绳索下压", sets: 2, minReps: 10, maxReps: 15 }] },
+  { rotationKey: "back", title: "背日 · 背＋后束＋二头", exercises: [{ exerciseId: "neutral_grip_lat_pulldown", name: "对握高位下拉", sets: 2, minReps: 8, maxReps: 12 }, { exerciseId: "machine_row", name: "坐姿器械划船", sets: 2, minReps: 8, maxReps: 12 }, { exerciseId: "machine_reverse_fly", name: "反向飞鸟（器械）", sets: 2, minReps: 12, maxReps: 20 }, { exerciseId: "dumbbell_biceps_curl", name: "哑铃弯举", sets: 2, minReps: 10, maxReps: 15 }] },
+  { rotationKey: "legs", title: "腿日 · 下肢＋核心", exercises: [{ exerciseId: "leg_press", name: "腿举", sets: 2, minReps: 8, maxReps: 12 }, { exerciseId: "leg_curl", name: "腿弯举", sets: 2, minReps: 10, maxReps: 15 }, { exerciseId: "leg_extension", name: "腿屈伸", sets: 2, minReps: 10, maxReps: 15 }, { exerciseId: "dead_bug", name: "死虫", sets: 2, minReps: 8, maxReps: 12 }] },
+].map((day) => withCoreFinisher(day));
 let state = { session: null, exercises: BASE_EXERCISES, screen: "home", draft: null, editingSetIndex: -1, editReturn: null, selectedWatch: "", watchCandidates: [], importing: false, resetArmed: false, locale: "zh", pickerPresetKey: "", historyWorkoutId: "", historyMode: "workouts", historyExerciseId: "", liftUnit: "kg", liftGrain: "session", liftScrubIndex: -1, liftSheetOpen: false, training: { snapshot: null, busy: false, error: "" }, cloud: { config: null, session: null, busy: false } };
 const fullWgerLibrary = new WgerLibrary();
 let wgerPickerMode = "common", pickerPaint = 0;
@@ -361,13 +357,13 @@ function renderPicker() {
   };
   const today = state.training.snapshot?.today;
   const remotePreset = today?.exercises?.length ? { key: "bodyos_today", group: "", title: today.title || "Body.OS 下次训练", titleEn: today.title || "Body.OS next workout", note: `${today.exercises.reduce((sum, item) => sum + Number(item.sets || 0), 0)} 组 · ${today.readinessLabel || "已同步"}`, ids: today.exercises.map((item) => canonicalExerciseId(item.exerciseId)), sets: Object.fromEntries(today.exercises.map((item) => [canonicalExerciseId(item.exerciseId), Number(item.sets || 0)])) } : null;
-  const dayPresets = (state.training.snapshot?.dayPlans || []).map((day) => ({
+  const dayPresets = (state.training.snapshot?.dayPlans?.length ? state.training.snapshot.dayPlans : DEFAULT_DAY_PLANS).map((day) => ({
     key: `bodyos_day_${day.rotationKey}`, group: "", title: ({ chest: "胸日", back: "背日", legs: "腿日" })[day.rotationKey] || day.title,
-    note: day.rotationKey === today?.rotationKey ? "当前推荐" : `${day.exercises.length} 个动作`,
+    note: `${day.exercises.length} 个动作 · ${day.exercises.reduce((sum, item) => sum + Number(item.sets || 0), 0)} 组${day.rotationKey === today?.rotationKey ? " · 当前推荐" : ""}`,
     ids: day.exercises.map((item) => canonicalExerciseId(item.exerciseId)),
     sets: Object.fromEntries(day.exercises.map((item) => [canonicalExerciseId(item.exerciseId), Number(item.sets || 0)])), day,
   }));
-  const presets = [...dayPresets, ...(remotePreset && !dayPresets.length ? [remotePreset] : []), ...TRAINING_PRESETS];
+  const presets = [...dayPresets, ...(remotePreset && !dayPresets.some((preset) => preset.day.rotationKey === today?.rotationKey) ? [remotePreset] : [])];
   let filter = pickerSearchState.filter, activePresetKey = state.pickerPresetKey || "";
   const update = () => {
     document.querySelectorAll("[data-filter]").forEach(chip => chip.classList.toggle("active", chip.dataset.filter === filter));
@@ -496,7 +492,7 @@ function openExercise(id) {
     }).catch(error => showToast(error.message || "动作详情读取失败，可重新选择"));
     return;
   }
-  const chosenDay = (state.training.snapshot?.dayPlans || []).find((day) => state.pickerPresetKey === `bodyos_day_${day.rotationKey}`);
+  const chosenDay = (state.training.snapshot?.dayPlans?.length ? state.training.snapshot.dayPlans : DEFAULT_DAY_PLANS).find((day) => state.pickerPresetKey === `bodyos_day_${day.rotationKey}`);
   if (chosenDay) { state.session.recommendationKey = chosenDay.key; persist(); }
   if (state.pickerPresetKey === "bodyos_today" && (state.training.snapshot?.recommendation?.rotationKey || state.training.snapshot?.recommendation?.key)) {
     state.session.recommendationKey = state.training.snapshot.today?.key || state.training.snapshot.recommendation.key || state.training.snapshot.recommendation.rotationKey;
@@ -638,12 +634,25 @@ async function saveSet() {
   await persist(); navigator.vibrate?.(35); showToast(`第 ${state.session.sets.filter((s) => s.exerciseId === set.exerciseId).length} 组已保存 · 已自动开始 ${formatClock(set.restSeconds || DEFAULT_REST_SECONDS)} 休息`); renderEntry();
 }
 
+let autoFinishing = false;
+async function autoFinishIfIdle() {
+  if (autoFinishing || !state.session || state.editingSetIndex >= 0) return;
+  const plan = autoFinishPlan(state.session);
+  if (!plan) return;
+  autoFinishing = true;
+  try {
+    await finishSession({ endedAt: plan.endedAt, elapsedMs: plan.elapsedMs });
+    showToast(`最后一组后 1 小时未结束，已自动结束于 ${formatTrainingDate(plan.endedAt, { hour: "2-digit", minute: "2-digit", hour12: false })}${state.cloud.session ? "，正在上传云端" : "，登录云端后自动上传"}`);
+  } finally { autoFinishing = false; }
+}
+
 function updateClocks() {
+  autoFinishIfIdle();
   document.querySelectorAll("[data-elapsed]").forEach((node) => node.textContent = formatClock(elapsed()));
   document.querySelectorAll("[data-rest]").forEach((node) => { const seconds = restRemainingSeconds(state.session.rest); node.textContent = formatClock(seconds); if (!seconds && state.session.rest?.running) { state.session.rest = null; navigator.vibrate?.([120,80,120]); persist(); showToast("休息结束，可以开始下一组"); render(); } });
 }
 
-async function finishSession() { if (state.session.timer.running) { state.session.timer.elapsedMs = timerElapsedMs(state.session); state.session.timer.running = false; state.session.timer.startedAtMs = null; } state.session.endedAt = new Date().toISOString(); state.session.rest = null; await persist(); await queueFinishedSession(); await loadWatchCandidates(); navigate("summary"); if (!state.cloud.session && state.session.sets.length) showToast("训练已保存，登录云端后可自动上传");
+async function finishSession({ endedAt = "", elapsedMs = null } = {}) { if (state.session.timer.running || elapsedMs != null) { state.session.timer.elapsedMs = elapsedMs ?? timerElapsedMs(state.session); state.session.timer.running = false; state.session.timer.startedAtMs = null; } state.session.endedAt = endedAt || new Date().toISOString(); state.session.rest = null; await persist(); await queueFinishedSession(); await loadWatchCandidates(); navigate("summary"); if (!state.cloud.session && state.session.sets.length) showToast("训练已保存，登录云端后可自动上传");
   uploadFinishedSessionAutomatically(); }
 async function loadWatchCandidates() { try { const params = new URLSearchParams({ started_at: state.session.startedAt, ended_at: state.session.endedAt || new Date().toISOString() }); const response = await fetch(`/api/workout-capture/match-candidates?${params}`); if (!response.ok) throw new Error(); const data = await response.json(); state.watchCandidates = data.candidates || []; const selected = decisiveWatchCandidate(state.watchCandidates); state.selectedWatch = selected?.workoutId || ""; } catch { state.watchCandidates = []; state.selectedWatch = ""; } }
 
@@ -1088,7 +1097,7 @@ async function uploadFinishedSessionAutomatically() {
 function refreshTrainingInBackground() {
   if (!document.hidden && navigator.onLine && (canDirectBodyOs || (state.cloud.config && state.cloud.session))) { uploadFinishedSessionAutomatically(); loadTrainingSnapshot({ quiet: true }); }
 }
-document.addEventListener("visibilitychange", () => { if (!document.hidden) { updateClocks(); refreshTrainingInBackground(); } });
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { updateClocks(); refreshTrainingInBackground(); uploadFinishedSessionAutomatically(); } });
 window.addEventListener("online", refreshTrainingInBackground);
 setInterval(refreshTrainingInBackground, 60000);
 document.addEventListener("error", (event) => { if (event.target?.classList?.contains("exercise-gif")) { event.target.hidden = true; event.target.parentElement?.classList.add("is-media-error"); } }, true);

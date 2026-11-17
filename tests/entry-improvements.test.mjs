@@ -38,3 +38,17 @@ test("split days get one core finisher that recovery planning ignores", () => {
   assert.equal(withCoreFinisher({ rotationKey: "full", exercises: [] }).exercises.length, 0);
   assert.ok(ids.has("cable_kneeling_crunch") && ids.has("pallof_press") && ids.has("dead_bug"));
 });
+
+test("forgotten workouts auto-finish one hour after the last set, minus the idle hour", async () => {
+  const { autoFinishPlan, AUTO_FINISH_IDLE_MS: H } = await import("../core.js");
+  const start = Date.parse("2026-11-17T18:00:00Z"), last = start + 50 * 60000;
+  const session = { endedAt: "", sets: [{ completedAt: new Date(start + 10 * 60000).toISOString() }, { completedAt: new Date(last).toISOString() }], timer: { running: true, elapsedMs: 0, startedAtMs: start } };
+  assert.equal(autoFinishPlan(session, last + H - 1), null, "not yet");
+  const plan = autoFinishPlan(session, last + H);
+  assert.equal(plan.endedAtMs, last, "end time is one hour before the trigger");
+  assert.equal(plan.elapsedMs, 50 * 60000, "the idle hour is removed from the clock");
+  assert.equal(autoFinishPlan(session, last + 5 * H).endedAtMs, last, "reopening later still ends at the last set");
+  assert.equal(autoFinishPlan({ ...session, timer: { running: false, elapsedMs: 40 * 60000 } }, last + H).elapsedMs, 40 * 60000);
+  assert.equal(autoFinishPlan({ ...session, endedAt: "x" }, last + H), null);
+  assert.equal(autoFinishPlan({ ...session, sets: [] }, last + H), null);
+});

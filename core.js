@@ -1197,3 +1197,20 @@ export function snapshotWithCoreFinishers(snapshot) {
   const today = snapshot.today ? withCoreFinisher(snapshot.today, todayKey) : snapshot.today;
   return { ...snapshot, dayPlans, today };
 }
+
+// ── Auto-finish a forgotten workout ───────────────────────────────────────────────────────
+// One hour after the last saved set with no "finish", the workout is closed as of one hour
+// before the trigger (= the last set), and the idle hour is removed from the workout clock.
+export const AUTO_FINISH_IDLE_MS = 60 * 60 * 1000;
+
+export function autoFinishPlan(session, nowMs = Date.now(), idleMs = AUTO_FINISH_IDLE_MS) {
+  if (!session || session.endedAt || !Array.isArray(session.sets) || !session.sets.length) return null;
+  const lastMs = Math.max(...session.sets.map((set) => Date.parse(set.completedAt)).filter(Number.isFinite));
+  if (!Number.isFinite(lastMs) || nowMs - lastMs < idleMs) return null;
+  const endedAtMs = Math.min(nowMs, lastMs + idleMs) - idleMs;
+  const timer = session.timer || {};
+  const elapsedMs = timer.running && timer.startedAtMs
+    ? Math.max(0, Number(timer.elapsedMs || 0)) + Math.max(0, endedAtMs - timer.startedAtMs)
+    : Math.max(0, Number(timer.elapsedMs || 0));
+  return { endedAtMs, endedAt: new Date(endedAtMs).toISOString(), elapsedMs };
+}
