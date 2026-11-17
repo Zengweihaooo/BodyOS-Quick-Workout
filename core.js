@@ -1145,3 +1145,55 @@ export function mergeOwnerExerciseCatalog(remote, base, cached = []) {
   }
   return result;
 }
+
+// ── Grip-driven variant matching ──────────────────────────────────────────────────────────
+// Lat pulldowns, seated cable rows, barbell rows and pull-ups are stored as separate canonical
+// exercises per grip. Picking a grip on the entry screen re-identifies the set as the matching
+// variant; when no variant fits (e.g. medium pronated pulldown) the current exercise is kept.
+const GRIP_VARIANT_FAMILIES = Object.freeze([
+  { key: "lat_pulldown", members: ["wide_grip_lat_pulldown", "close_grip_lat_pulldown", "neutral_grip_lat_pulldown", "underhand_lat_pulldown"],
+    pick: ({ gripWidth, gripOrientation }) => gripOrientation === "supinated" ? "underhand_lat_pulldown" : gripOrientation === "neutral" ? "neutral_grip_lat_pulldown" : gripWidth === "wide" ? "wide_grip_lat_pulldown" : gripWidth === "close" ? "close_grip_lat_pulldown" : "" },
+  { key: "seated_cable_row", members: ["seated_cable_row", "wide_grip_seated_row", "close_grip_seated_row"],
+    pick: ({ gripWidth, gripOrientation }) => gripWidth === "wide" ? "wide_grip_seated_row" : gripWidth === "close" || gripOrientation === "neutral" ? "close_grip_seated_row" : "seated_cable_row" },
+  { key: "barbell_row", members: ["barbell_row", "underhand_barbell_row"],
+    pick: ({ gripOrientation }) => gripOrientation === "supinated" ? "underhand_barbell_row" : gripOrientation === "pronated" ? "barbell_row" : "" },
+  { key: "pull_up", members: ["pull_up", "chin_up", "wide_grip_pull_up", "neutral_grip_pull_up"],
+    pick: ({ gripWidth, gripOrientation }) => gripOrientation === "supinated" ? "chin_up" : gripOrientation === "neutral" ? "neutral_grip_pull_up" : gripWidth === "wide" ? "wide_grip_pull_up" : "pull_up" },
+]);
+
+export function gripVariantFamily(exerciseId) {
+  const id = canonicalExerciseId(exerciseId || "");
+  return GRIP_VARIANT_FAMILIES.find((family) => family.members.includes(id)) || null;
+}
+
+/** Returns the canonical id that matches the grip, or "" to keep the current exercise. */
+export function gripVariantFor(exerciseId, grip = {}) {
+  const family = gripVariantFamily(exerciseId);
+  if (!family) return "";
+  const target = family.pick(grip);
+  return target && target !== canonicalExerciseId(exerciseId) ? target : "";
+}
+
+// ── Core finisher for the chest / back / legs split ───────────────────────────────────────
+// Each split day gets one core exercise appended unless the published plan already has one.
+// Added items are flagged `coreFinisher` so recovery planning does not count them as that day's work.
+export const SPLIT_CORE_FINISHERS = Object.freeze({
+  chest: { exerciseId: "cable_kneeling_crunch", name: "跪姿绳索卷腹", sets: 3, minReps: 10, maxReps: 15 },
+  back: { exerciseId: "pallof_press", name: "弹力带帕洛夫抗旋", sets: 3, minReps: 10, maxReps: 12 },
+  legs: { exerciseId: "dead_bug", name: "死虫", sets: 3, minReps: 8, maxReps: 12 },
+});
+
+export function withCoreFinisher(plan, rotationKey = plan?.rotationKey) {
+  const finisher = SPLIT_CORE_FINISHERS[String(rotationKey || "")];
+  if (!finisher || !Array.isArray(plan?.exercises)) return plan;
+  if (plan.exercises.some((item) => exerciseCategory({ id: item.exerciseId, exerciseId: item.exerciseId, name: item.name }) === "core")) return plan;
+  return { ...plan, exercises: [...plan.exercises, { ...finisher, coreFinisher: true }] };
+}
+
+export function snapshotWithCoreFinishers(snapshot) {
+  if (!snapshot || typeof snapshot !== "object") return snapshot;
+  const dayPlans = Array.isArray(snapshot.dayPlans) ? snapshot.dayPlans.map((day) => withCoreFinisher(day)) : snapshot.dayPlans;
+  const todayKey = snapshot.today?.rotationKey || snapshot.recommendation?.rotationKey;
+  const today = snapshot.today ? withCoreFinisher(snapshot.today, todayKey) : snapshot.today;
+  return { ...snapshot, dayPlans, today };
+}

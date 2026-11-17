@@ -252,7 +252,7 @@ export function dayPlanIndex(snapshot) {
   for (const plan of snapshot?.dayPlans || []) {
     const key = String(plan.rotationKey || "");
     if (!SPLIT_GROUPS.includes(key)) continue;
-    for (const item of plan.exercises || []) if (item.exerciseId) index.set(canonicalExerciseId(item.exerciseId), key);
+    for (const item of plan.exercises || []) if (item.exerciseId && !item.coreFinisher) index.set(canonicalExerciseId(item.exerciseId), key);
   }
   return index;
 }

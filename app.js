@@ -1,6 +1,6 @@
 import { WgerLibrary, searchWgerCatalog } from "./wger-library.js?v=2";
-import { exerciseHistorySessionCounts, historySourceLabel, createCustomExercise, validExercisePhoto, exerciseSearchMatches, EXERCISE_CATALOG_VERSION, exerciseGuide, exerciseCategory, bodyLibraryExercise, formatTrainingDate, canRefreshTrainingScreen, recommendationFreshness, shouldUploadFinishedSession, createSerialTaskQueue, EXERCISE_REFERENCES, FALLBACK_EXERCISES, LOAD_LABELS, PICKER_ALPHABET, adjustRest, applyRecordingMode, buildBodyCandidate, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createExport, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, groupPickerCatalogByLetter, lookupExerciseDefault, mergeExerciseCatalog, mergeOwnerExerciseCatalog, nextSetDraft, normalizeSet, pickerLetterTarget, rankPickerExercises, recordingModeForSet, resolveCatalogExerciseId, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise, aggregateLiftPoints, displayLiftKg, liftChartMarkup, liftPointDetailMarkup, lookbackLiftDeltas, progressSeriesForExercise } from "./core.js?v=31";
-import { GUIDANCE_SOURCES, RECOVERY, SPLIT_LABELS, exerciseAlternatives, recoveryPlan, suggestWeight } from "./guidance.js?v=6";
+import { exerciseHistorySessionCounts, historySourceLabel, createCustomExercise, validExercisePhoto, exerciseSearchMatches, EXERCISE_CATALOG_VERSION, exerciseGuide, exerciseCategory, bodyLibraryExercise, formatTrainingDate, canRefreshTrainingScreen, recommendationFreshness, shouldUploadFinishedSession, createSerialTaskQueue, EXERCISE_REFERENCES, FALLBACK_EXERCISES, LOAD_LABELS, PICKER_ALPHABET, adjustRest, applyRecordingMode, buildBodyCandidate, canonicalExerciseId, changeWeightUnit, compareWorkoutHistory, createExport, createRunningRest, createSession, decisiveWatchCandidate, draftFromExerciseDefault, groupPickerCatalogByLetter, lookupExerciseDefault, mergeExerciseCatalog, mergeOwnerExerciseCatalog, nextSetDraft, normalizeSet, pickerLetterTarget, rankPickerExercises, recordingModeForSet, resolveCatalogExerciseId, restRemainingSeconds, sessionSummary, timerElapsedMs, toMarkdown, withoutExercise, aggregateLiftPoints, displayLiftKg, liftChartMarkup, liftPointDetailMarkup, lookbackLiftDeltas, progressSeriesForExercise, gripVariantFor, snapshotWithCoreFinishers } from "./core.js?v=32";
+import { GUIDANCE_SOURCES, RECOVERY, SPLIT_LABELS, exerciseAlternatives, recoveryPlan, suggestWeight } from "./guidance.js?v=7";
 import { saveAIChoice, fetchTrainingSnapshot, migrateSupabaseConfig, normalizeSupabaseConfig, refreshSession, sessionIsFresh, signInWithPassword, uploadWorkout } from "./supabase.js?v=12";
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -28,7 +28,7 @@ const TRAINING_PRESETS = [
   { key: "chest_balanced", group: "chest", title: "胸部平衡", note: "平板推 · 上斜推 · 夹胸", ids: ["dumbbell_flat_chest_press","dumbbell_incline_chest_press","cable_chest_fly"] },
   { key: "back_complete", group: "back", title: "背部完整", note: "垂直拉 · 水平拉 · 肩伸展", ids: ["assisted_close_grip_pull_up","neutral_grip_lat_pulldown","machine_row","straight_arm_pulldown"] },
 ];
-let state = { session: null, exercises: BASE_EXERCISES, screen: "home", draft: null, editingSetIndex: -1, selectedWatch: "", watchCandidates: [], importing: false, resetArmed: false, locale: "zh", pickerPresetKey: "", historyWorkoutId: "", historyMode: "workouts", historyExerciseId: "", liftUnit: "kg", liftGrain: "session", liftScrubIndex: -1, liftSheetOpen: false, training: { snapshot: null, busy: false, error: "" }, cloud: { config: null, session: null, busy: false } };
+let state = { session: null, exercises: BASE_EXERCISES, screen: "home", draft: null, editingSetIndex: -1, editReturn: null, selectedWatch: "", watchCandidates: [], importing: false, resetArmed: false, locale: "zh", pickerPresetKey: "", historyWorkoutId: "", historyMode: "workouts", historyExerciseId: "", liftUnit: "kg", liftGrain: "session", liftScrubIndex: -1, liftSheetOpen: false, training: { snapshot: null, busy: false, error: "" }, cloud: { config: null, session: null, busy: false } };
 const fullWgerLibrary = new WgerLibrary();
 let wgerPickerMode = "common", pickerPaint = 0;
 const pickerSearchState = {query:"", filter:"", offset:0};
@@ -84,7 +84,16 @@ function inferredGrip(exercise) {
 
 function gripMarkup(draft) {
   if (!supportsGrip(draft)) return "";
-  return `<section class="section grip-panel"><div class="section-head"><h2>握法</h2><span class="label">按本组实际握法记录</span></div><div class="grip-row"><span>握距</span><div class="chip-row">${[["wide","宽距"],["medium","中距"],["close","窄距"]].map(([value,label]) => `<button class="chip ${draft.gripWidth === value ? "active" : ""}" data-grip-width="${value}">${label}</button>`).join("")}</div></div><div class="grip-row"><span>握向</span><div class="chip-row">${[["pronated","正握"],["supinated","反握"],["neutral","对握"]].map(([value,label]) => `<button class="chip ${draft.gripOrientation === value ? "active" : ""}" data-grip-orientation="${value}">${label}</button>`).join("")}</div></div></section>`;
+  return `<section class="section grip-panel"><div class="section-head"><h2>握法</h2><span class="label">选握距/握向自动匹配动作</span></div><div class="grip-row"><span>握距</span><div class="chip-row">${[["wide","宽距"],["medium","中距"],["close","窄距"]].map(([value,label]) => `<button class="chip ${draft.gripWidth === value ? "active" : ""}" data-grip-width="${value}">${label}</button>`).join("")}</div></div><div class="grip-row"><span>握向</span><div class="chip-row">${[["pronated","正握"],["supinated","反握"],["neutral","对握"]].map(([value,label]) => `<button class="chip ${draft.gripOrientation === value ? "active" : ""}" data-grip-orientation="${value}">${label}</button>`).join("")}</div></div></section>`;
+}
+
+function ensureSessionTimerStarted() {
+  const timer = state.session.timer;
+  if (timer.running || timer.elapsedMs) return false;
+  const now = Date.now();
+  if (!state.session.sets.length) state.session.startedAt = new Date(now).toISOString();
+  timer.running = true; timer.startedAtMs = now;
+  return true;
 }
 
 async function toggleSessionTimer() {
@@ -136,6 +145,7 @@ function render() {
   if (state.screen === "picker") renderPicker(); else if (state.screen === "custom") renderCustomExercise(); else if (state.screen === "entry") renderEntry(); else if (state.screen === "summary") renderSummary(); else if (state.screen === "watch") renderWatch(); else if (state.screen === "cloud") renderCloud(); else if (state.screen === "history") renderHistory(); else if (state.screen === "recovery") renderRecovery(); else if (state.screen === "recommendation") renderRecommendation(); else renderHome();
   const activeTrainingScreen = ["home", "picker", "custom", "entry"].includes(state.screen);
   quickFinish.classList.toggle("hidden", !activeTrainingScreen || !state.session.sets.length);
+  document.documentElement.style.setProperty("--topbar-h", `${document.querySelector(".topbar")?.offsetHeight || 76}px`);
   tickTimer = setInterval(updateClocks, 1000); updateClocks();
 }
 
@@ -504,7 +514,10 @@ function openExercise(id) {
     state.suggestion = { exerciseId: id, ...suggestWeight({ exercise, snapshot: state.training.snapshot, catalog: state.exercises, targets: state.muscleTargets || {} }) };
     if (["stale", "cross"].includes(state.suggestion.kind) && !state.draft.needsLoadModeConfirmation) { state.draft.weightUnit = "kg"; state.draft.weightValue = state.suggestion.kg; }
   }
+  const autoStarted = ensureSessionTimerStarted();
+  if (autoStarted) persist();
   navigate("entry");
+  if (autoStarted) showToast(localeText("已自动开始训练计时", "Workout timer started"));
   refreshTrainingSnapshotForExercise();
 }
 function defaultRest() { return DEFAULT_REST_SECONDS; }
@@ -513,9 +526,40 @@ function editSessionSet(index) {
   const set = state.session.sets[index];
   if (!set) return;
   const exercise = state.exercises.find((item) => item.id === set.exerciseId) || fromSet(set.exerciseId);
+  state.editReturn = { screen: state.screen === "entry" ? "entry" : "summary", draft: state.screen === "entry" && state.editingSetIndex < 0 ? state.draft : state.editReturn?.draft || null };
   state.editingSetIndex = index;
   state.draft = normalizeSet({ ...set, reference: exercise.reference });
   navigate("entry");
+}
+
+function leaveSetEditor() {
+  const target = state.editReturn;
+  state.editingSetIndex = -1; state.editReturn = null;
+  if (target?.screen === "entry" && target.draft) { state.draft = target.draft; navigate("entry"); return; }
+  state.draft = null; navigate(target?.screen || "summary");
+}
+
+async function deleteSessionSet(index) {
+  const set = state.session.sets[index];
+  if (!set) return;
+  const previousSets = [...state.session.sets];
+  state.session.sets.splice(index, 1);
+  state.session.sync = { ...state.session.sync, supabaseDirty: Boolean(state.session.sync?.supabaseId) };
+  await persist(); leaveSetEditor();
+  showToast(`已删除 ${set.exerciseName} 的一组`, "撤销", async () => { state.session.sets = previousSets; await persist(); render(); showToast("已恢复这一组"); });
+}
+
+function applyGripVariant() {
+  const targetId = gripVariantFor(state.draft.exerciseId, state.draft);
+  const exercise = targetId && state.exercises.find((item) => item.id === targetId);
+  if (exercise) {
+    const unilateral = exercise.loadMode === "per_limb" && exercise.executionMode === "unilateral";
+    state.draft = normalizeSet({ ...state.draft, exerciseId: exercise.id, exerciseName: exercise.name, canonicalNameEn: exercise.canonicalNameEn, equipment: exercise.equipment, movementPattern: exercise.movementPattern, loadMode: exercise.loadMode, executionMode: exercise.executionMode, sideCount: exercise.sideCount, side: unilateral ? "right" : "both", reference: exercise.reference, photos: exercise.photos });
+    if (state.editingSetIndex < 0) state.session.currentExerciseId = exercise.id;
+    state.suggestion = null;
+    showToast(localeText(`已按握法匹配：${exercise.name}`, `Matched grip: ${exercise.canonicalNameEn || exercise.name}`));
+  }
+  renderEntry();
 }
 
 function renderEntry() {
@@ -527,17 +571,18 @@ function renderEntry() {
   const reference = d.reference || {}, { description, source: guideSource } = exerciseGuide(reference, state.locale), wgerUrl = safeExternalUrl(guideSource?.videoUrl || guideSource?.pageUrl || reference.wger?.pageUrl, "wger"), license = guideSource?.translationLicenseZh?.short_name || guideSource?.translationLicenseEn?.short_name || guideSource?.license?.short_name || "";
   const referencePanel = (reference.datasetId || reference.wger || reference.referenceNote) ? `<details class="exercise-reference-panel"><summary>${localeText("动作资料与来源", "Exercise guide & sources")}</summary><div>${description ? `<p>${escapeHTML(description)}</p>` : `<p class="muted">${reference.wger ? localeText("wger 尚未提供文字说明，可打开来源页核对。", "No description is available; open the source page.") : localeText("动作说明待核对；不显示已发现错配的资料。", "Guide verification is pending; mismatched references are not displayed.")}</p>`}<small>${reference.datasetId ? `exercise dataset ${escapeHTML(reference.datasetId)} · ` : ""}${localeText("详情", "Guide")}：${guideSource ? `wger ${guideSource.matchType === "exact" ? localeText("已匹配", "matched") : localeText("通用参考", "reference")}` : localeText("待核对", "pending verification")}${license ? ` · ${escapeHTML(license)}` : ""}${guideSource?.author ? ` · ${escapeHTML(guideSource.author)}` : ""}</small>${wgerUrl ? `<a href="${escapeHTML(wgerUrl)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">${localeText("在 wger 查看", "View on wger")} ↗</a>` : ""}</div></details>` : "";
   const recordingMode = d.needsLoadModeConfirmation ? "" : recordingModeForSet(d);
-  setScreenHeading(editing ? localeText("编辑历史组", "Edit saved set") : (state.locale === "en" ? (d.canonicalNameEn || d.exerciseName) : d.exerciseName)); app.innerHTML = `${editing ? `<section class="section edit-exercise-field"><div class="field"><label for="editExercise">${localeText("修改动作", "Change exercise")}</label><select id="editExercise">${state.exercises.map((exercise) => `<option value="${escapeHTML(exercise.id)}" ${exercise.id === d.exerciseId ? "selected" : ""}>${escapeHTML(state.locale === "en" ? (exercise.canonicalNameEn || exercise.name) : exercise.name)}</option>`).join("")}</select></div></section>` : ""}<section class="hero"><div class="entry-title"><span class="exercise-icon">${exerciseIcon(d)}</span><div><div class="label">${editing ? localeText("正在修改已保存记录", "Editing saved record") : localeText(`第 ${count + 1} 组`, `Set ${count + 1}`)}</div>${exerciseLabel(d)}<div class="muted">${escapeHTML(d.equipment || localeText("标准动作", "Standard"))}</div></div></div><div class="semantic"><span>${localeText("本组记录方式", "Set recording mode")}</span><select id="recordingMode" aria-label="本组记录方式">${d.needsLoadModeConfirmation ? '<option value="" selected disabled>请确认总重量或单侧重量</option>' : ""}${Object.entries(RECORDING_MODE_LABELS).map(([value,label]) => `<option value="${value}" ${recordingMode === value ? "selected" : ""}>${label}</option>`).join("")}</select></div></section>${referencePanel}${(d.photos || []).filter(validExercisePhoto).length ? `<section class="section"><h2>器材参考照片</h2><div class="custom-photo-grid">${d.photos.filter(validExercisePhoto).map(photo => `<img src="${escapeHTML(photo)}" alt="器材参考照片">`).join("")}</div></section>` : ""}${state.exercises.find(x => x.id === d.exerciseId)?.isCustom ? `<button class="secondary edit-custom" id="editCustomDetails">编辑动作名称与照片</button>` : ""}
-  <div class="session-timer-strip"><span><small>训练计时</small><strong data-elapsed>${formatClock(elapsed())}</strong></span><button id="entryTimerToggle">${state.session.timer.running ? "暂停" : "开始"}</button></div>
+  setScreenHeading(editing ? localeText("编辑历史组", "Edit saved set") : (state.locale === "en" ? (d.canonicalNameEn || d.exerciseName) : d.exerciseName)); app.innerHTML = `${editing ? `<section class="section edit-exercise-field"><div class="field"><label for="editExercise">${localeText("修改动作", "Change exercise")}</label><select id="editExercise">${state.exercises.map((exercise) => `<option value="${escapeHTML(exercise.id)}" ${exercise.id === d.exerciseId ? "selected" : ""}>${escapeHTML(state.locale === "en" ? (exercise.canonicalNameEn || exercise.name) : exercise.name)}</option>`).join("")}</select></div></section>` : ""}<section class="hero"><div class="entry-title"><span class="exercise-icon">${exerciseIcon(d)}</span><div><div class="label">${editing ? localeText("正在修改已保存记录", "Editing saved record") : localeText(`第 ${count + 1} 组`, `Set ${count + 1}`)}</div>${exerciseLabel(d)}<div class="muted">${escapeHTML(d.equipment || localeText("标准动作", "Standard"))}</div></div></div><div class="semantic"><span>${localeText("本组记录方式", "Set recording mode")}</span><select id="recordingMode" aria-label="本组记录方式">${d.needsLoadModeConfirmation ? '<option value="" selected disabled>请确认总重量或单侧重量</option>' : ""}${Object.entries(RECORDING_MODE_LABELS).map(([value,label]) => `<option value="${value}" ${recordingMode === value ? "selected" : ""}>${label}</option>`).join("")}</select></div></section>
   ${restMarkup()}
-  ${last ? `<div class="last-set">${localeText("上一组", "Previous set")}：${last.weightValue}${last.weightUnit} × ${last.reps} ${localeText("次", "reps")}${last.rir != null ? ` · RIR ${last.rir}` : ""}</div>` : cached ? `<div class="last-set cached-default"><strong>已带入最近训练参数</strong><span>${formatTrainingDate(cached.usedAt, {month:"numeric",day:"numeric"})} · ${cached.setCount} 组 · 最近最大 ${cached.weightValue}${cached.weightUnit} × ${cached.reps}</span></div>` : ""}${prescription ? `<div class="prescription-note">下次建议：${prescription.sets || "—"} 组${prescription.minReps || prescription.maxReps ? ` · ${prescription.minReps || "?"}–${prescription.maxReps || "?"} 次` : ""}${prescription.targetRir != null ? ` · 保留 ${escapeHTML(Array.isArray(prescription.targetRir) ? prescription.targetRir.join("–") : prescription.targetRir)} 次余力` : prescription.targetRpe ? ` · RPE ${prescription.targetRpe}` : ""}</div>` : ""}${liftProgressPanel(d.exerciseId)}${setPreviewMarkup(count, last)}
-  ${!last && state.suggestion?.exerciseId === d.exerciseId ? suggestionMarkup(state.suggestion) : ""}
   <div class="step-grid"><div class="stepper"><div class="row"><div class="label">${RECORDING_MODE_LABELS[recordingMode] || "请先确认重量口径"}</div><div class="unit-switch" aria-label="重量单位"><button class="${unit === "kg" ? "active" : ""}" data-unit="kg">kg</button><button class="${unit === "lb" ? "active" : ""}" data-unit="lb">lb <small>磅</small></button></div></div><div class="stepper-controls"><button data-step="weight" data-delta="-${step}" aria-label="减少重量">−</button><input id="weight" class="number-input" type="number" inputmode="decimal" min="0" step="${step}" value="${d.weightValue}" aria-label="重量，点击数字可直接输入"><button data-step="weight" data-delta="${step}" aria-label="增加重量">＋</button></div><div class="direct-input-hint">点击数字可直接输入 · ${unit === "lb" ? "当前单位：磅" : "可切换 lb（磅）"}${d.sideCount === 2 && ["per_limb","per_side"].includes(d.loadMode) ? ` · 总负荷 ${d.weightValue * 2} ${unit}` : ""}</div></div><div class="stepper"><div class="label">次数</div><div class="stepper-controls"><button data-step="reps" data-delta="-1" aria-label="减少次数">−</button><input id="reps" class="number-input" type="number" inputmode="numeric" min="0" step="1" value="${d.reps}" aria-label="次数，点击数字可直接输入"><button data-step="reps" data-delta="1" aria-label="增加次数">＋</button></div><div class="direct-input-hint">点击数字可直接输入</div></div></div>
+  ${last && !editing ? `<button type="button" class="last-set last-set-edit" data-edit-set="${state.session.sets.lastIndexOf(last)}"><span>${localeText("上一组", "Previous set")}：${last.weightValue}${last.weightUnit} × ${last.reps} ${localeText("次", "reps")}${last.rir != null ? ` · RIR ${last.rir}` : ""}</span><em>✎ ${localeText("修改", "Edit")}</em></button>` : last ? "" : cached ? `<div class="last-set cached-default"><strong>已带入最近训练参数</strong><span>${formatTrainingDate(cached.usedAt, {month:"numeric",day:"numeric"})} · ${cached.setCount} 组 · 最近最大 ${cached.weightValue}${cached.weightUnit} × ${cached.reps}</span></div>` : ""}${prescription ? `<div class="prescription-note">下次建议：${prescription.sets || "—"} 组${prescription.minReps || prescription.maxReps ? ` · ${prescription.minReps || "?"}–${prescription.maxReps || "?"} 次` : ""}${prescription.targetRir != null ? ` · 保留 ${escapeHTML(Array.isArray(prescription.targetRir) ? prescription.targetRir.join("–") : prescription.targetRir)} 次余力` : prescription.targetRpe ? ` · RPE ${prescription.targetRpe}` : ""}</div>` : ""}${!last && state.suggestion?.exerciseId === d.exerciseId ? suggestionMarkup(state.suggestion) : ""}
   <section class="section"><div class="section-head"><h2>RIR</h2><span class="label">还能完成几次</span></div><div class="rir-grid">${[null,0,1,2,3,4,5].map((v) => `<button class="chip ${d.rir === v ? "active" : ""}" data-rir="${v == null ? "" : v}">${v == null ? "未记" : v}</button>`).join("")}</div></section>
   ${gripMarkup(d)}
+  <div class="session-timer-strip"><span><small>训练计时</small><strong data-elapsed>${formatClock(elapsed())}</strong></span><button id="entryTimerToggle">${state.session.timer.running ? "暂停" : "开始"}</button></div>
+  ${setPreviewMarkup(count, last)}<details class="exercise-history" ${count && count <= 6 ? "open" : ""}><summary>${localeText(`本动作已完成 ${count} 组 · 点击可修改`, `${count} sets · tap to edit`)}</summary><div class="exercise-history-body">${count ? state.session.sets.map((set, globalIndex) => ({ set, globalIndex })).filter(({ set }) => set.exerciseId === d.exerciseId).map(({ set, globalIndex }, index) => `<button type="button" class="${globalIndex === state.editingSetIndex ? "editing" : ""}" data-edit-set="${globalIndex}"><span>${index + 1}</span><strong>${set.weightValue}${set.weightUnit} × ${set.reps}</strong><small>${set.rir != null ? `RIR ${set.rir} · ` : ""}✎</small></button>`).join("") : `<small>${localeText("保存第一组后会显示在这里。", "Save the first set to see it here.")}</small>`}</div></details>
+  ${liftProgressPanel(d.exerciseId)}${referencePanel}${(d.photos || []).filter(validExercisePhoto).length ? `<section class="section"><h2>器材参考照片</h2><div class="custom-photo-grid">${d.photos.filter(validExercisePhoto).map(photo => `<img src="${escapeHTML(photo)}" alt="器材参考照片">`).join("")}</div></section>` : ""}${state.exercises.find(x => x.id === d.exerciseId)?.isCustom ? `<button class="secondary edit-custom" id="editCustomDetails">编辑动作名称与照片</button>` : ""}
   ${alternativesMarkup(state.exercises.find((x) => x.id === d.exerciseId) || { id: d.exerciseId, name: d.exerciseName, canonicalNameEn: d.canonicalNameEn, equipment: d.equipment, movementPattern: d.movementPattern, loadMode: d.loadMode })}
-  <details class="exercise-history"><summary>${localeText(`本动作已完成 ${count} 组`, `${count} completed sets for this exercise`)}</summary><div class="exercise-history-body">${count ? state.session.sets.filter((set) => set.exerciseId === d.exerciseId).map((set, index) => `<div><span>${index + 1}</span><strong>${set.weightValue}${set.weightUnit} × ${set.reps}</strong><small>${set.rir != null ? `RIR ${set.rir}` : ""}</small></div>`).join("") : `<small>${localeText("保存第一组后会显示在这里。", "Save the first set to see it here.")}</small>`}</div></details>
-  <details class="detail-panel"><summary>扩展数据与备注</summary><div class="detail-body"><div class="field"><label for="rest">目标休息（秒，保存后自动开始）</label><input id="rest" type="number" inputmode="numeric" min="0" max="7200" value="${d.restSeconds ?? DEFAULT_REST_SECONDS}"></div><div class="field"><label for="rpe">RPE（1–10）</label><input id="rpe" type="number" inputmode="decimal" min="1" max="10" step="0.5" value="${d.rpe ?? ""}"></div><div class="field"><label for="rer">RER（0.5–2）</label><input id="rer" type="number" inputmode="decimal" min="0.5" max="2" step="0.1" value="${d.rer ?? ""}"></div><div class="field"><label for="notes">备注 / 疼痛反馈</label><textarea id="notes" maxlength="1000" placeholder="例如：左肩刺痛，动作控制良好">${escapeHTML(d.notes)}</textarea></div></div></details>`;
+  <details class="detail-panel"><summary>扩展数据与备注</summary><div class="detail-body"><div class="field"><label for="rest">目标休息（秒，保存后自动开始）</label><input id="rest" type="number" inputmode="numeric" min="0" max="7200" value="${d.restSeconds ?? DEFAULT_REST_SECONDS}"></div><div class="field"><label for="rpe">RPE（1–10）</label><input id="rpe" type="number" inputmode="decimal" min="1" max="10" step="0.5" value="${d.rpe ?? ""}"></div><div class="field"><label for="rer">RER（0.5–2）</label><input id="rer" type="number" inputmode="decimal" min="0.5" max="2" step="0.1" value="${d.rer ?? ""}"></div><div class="field"><label for="notes">备注 / 疼痛反馈</label><textarea id="notes" maxlength="1000" placeholder="例如：左肩刺痛，动作控制良好">${escapeHTML(d.notes)}</textarea></div></div></details>
+  ${editing ? `<button type="button" class="danger-link delete-set" id="deleteEditingSet">${localeText("删除这一组", "Delete this set")}</button>` : ""}`;
   bottomBar.innerHTML = `<button class="secondary" id="switchExercise">${editing ? localeText("取消", "Cancel") : localeText("切换动作", "Switch exercise")}</button><button class="primary" id="save" ${d.needsLoadModeConfirmation ? "disabled" : ""}>${editing ? localeText("保存修改", "Save changes") : last ? `复用并保存第 ${count + 1} 组` : "保存第 1 组"}</button>`;
   bindEntry();
   const panel = document.querySelector(".lift-progress");
@@ -545,7 +590,7 @@ function renderEntry() {
   syncLiftSheet(d.exerciseId);
 }
 
-function restMarkup() { const rest = state.session.rest; if (!rest) return ""; return `<section class="rest-card"><div class="row"><div><div class="label">休息计时 · ${rest.running ? "进行中" : "已暂停"}</div><div class="rest-time" data-rest>${formatClock(restRemainingSeconds(rest))}</div></div><span>${rest.running ? "自动倒计时" : "已暂停"}</span></div><div class="rest-actions"><button id="restSkip">跳过</button><button id="restSubtract">−30 秒</button><button id="restAdd">+30 秒</button><button id="restToggle">${rest.running ? "暂停" : "▶ 开始"}</button></div></section>`; }
+function restMarkup() { const rest = state.session.rest; if (!rest) return ""; return `<section class="rest-card" aria-label="休息倒计时"><div class="rest-head"><div class="label">休息 · ${rest.running ? "倒计时" : "已暂停"}</div><div class="rest-time" data-rest>${formatClock(restRemainingSeconds(rest))}</div></div><div class="rest-actions"><button id="restSubtract" aria-label="减少 30 秒">−30</button><button id="restAdd" aria-label="增加 30 秒">+30</button><button id="restToggle" aria-label="${rest.running ? "暂停休息" : "继续休息"}">${rest.running ? "Ⅱ" : "▶"}</button><button id="restSkip">跳过</button></div></section>`; }
 function bindEntry() {
   $("#entryTimerToggle")?.addEventListener("click", toggleSessionTimer);
   $("#recordingMode").onchange = (e) => { state.draft = applyRecordingMode(state.draft, e.target.value); state.draft.needsLoadModeConfirmation = false; renderEntry(); };
@@ -561,10 +606,12 @@ function bindEntry() {
     renderEntry();
   });
   document.querySelectorAll("[data-rir]").forEach((button) => button.onclick = () => { state.draft.rir = button.dataset.rir === "" ? null : Number(button.dataset.rir); renderEntry(); });
-  document.querySelectorAll("[data-grip-width]").forEach((button) => button.onclick = () => { state.draft.gripWidth = button.dataset.gripWidth; renderEntry(); });
-  document.querySelectorAll("[data-grip-orientation]").forEach((button) => button.onclick = () => { state.draft.gripOrientation = button.dataset.gripOrientation; renderEntry(); });
+  document.querySelectorAll("[data-grip-width]").forEach((button) => button.onclick = () => { state.draft.gripWidth = button.dataset.gripWidth; applyGripVariant(); });
+  document.querySelectorAll("[data-grip-orientation]").forEach((button) => button.onclick = () => { state.draft.gripOrientation = button.dataset.gripOrientation; applyGripVariant(); });
   $("#save")?.addEventListener("click", saveSet);
-  $("#switchExercise")?.addEventListener("click", async () => { if (state.editingSetIndex >= 0) { state.editingSetIndex = -1; state.draft = null; navigate("summary"); return; } await persist(); navigate("picker"); });
+  document.querySelectorAll("[data-edit-set]").forEach((button) => button.onclick = () => editSessionSet(Number(button.dataset.editSet)));
+  $("#deleteEditingSet")?.addEventListener("click", () => deleteSessionSet(state.editingSetIndex));
+  $("#switchExercise")?.addEventListener("click", async () => { if (state.editingSetIndex >= 0) { leaveSetEditor(); return; } await persist(); navigate("picker"); });
   document.querySelectorAll("[data-session-exercise]").forEach((button) => button.onclick = () => openExercise(button.dataset.sessionExercise));
   $("#restSkip")?.addEventListener("click", () => { state.session.rest = null; persist(); renderEntry(); });
   $("#restSubtract")?.addEventListener("click", async () => { state.session.rest = adjustRest(state.session.rest, -30); await persist(); renderEntry(); });
@@ -584,9 +631,9 @@ async function saveSet() {
   if (original) {
     state.session.sets[state.editingSetIndex] = set;
     state.session.sync = { ...state.session.sync, supabaseDirty: Boolean(state.session.sync?.supabaseId) };
-    state.editingSetIndex = -1; state.draft = null;
-    await persist(); navigator.vibrate?.(35); navigate("summary"); showToast("历史记录已修改；可重新上传以更新 Supabase"); return;
+    await persist(); navigator.vibrate?.(35); leaveSetEditor(); showToast(state.session.sync?.supabaseId ? "已修改；可重新上传以更新 Supabase" : "这一组已修改"); return;
   }
+  ensureSessionTimerStarted();
   state.session.sets.push(set); state.session.rest = createRunningRest(set.restSeconds || DEFAULT_REST_SECONDS); state.draft = nextSetDraft(set);
   await persist(); navigator.vibrate?.(35); showToast(`第 ${state.session.sets.filter((s) => s.exerciseId === set.exerciseId).length} 组已保存 · 已自动开始 ${formatClock(set.restSeconds || DEFAULT_REST_SECONDS)} 休息`); renderEntry();
 }
@@ -629,7 +676,7 @@ async function loadTrainingSnapshot({ quiet = false } = {}) {
         const session = await ensureCloudSession();
         snapshot = await fetchTrainingSnapshot(state.cloud.config, session);
       }
-      state.training.snapshot = snapshot;
+      state.training.snapshot = snapshotWithCoreFinishers(snapshot);
       await DB.set("training-snapshot", snapshot);
       state.training.error = "";
     } catch (error) {
@@ -1068,7 +1115,7 @@ async function boot() {
     await DB.set("training-snapshot", null);
   }
   state.cloud.session = await DB.get("supabase-session");
-  state.training.snapshot = await DB.get("training-snapshot");
+  state.training.snapshot = snapshotWithCoreFinishers(await DB.get("training-snapshot"));
   const saved = await DB.get("active-session"); state.session = saved?.sets && !saved.sync?.workoutId ? saved : createSession();
   state.session.sync = state.session.sync || { status: "local", draftId: "", workoutId: "" };
   if (migration.projectChanged) {
