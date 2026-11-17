@@ -1214,3 +1214,100 @@ export function autoFinishPlan(session, nowMs = Date.now(), idleMs = AUTO_FINISH
     : Math.max(0, Number(timer.elapsedMs || 0));
   return { endedAtMs, endedAt: new Date(endedAtMs).toISOString(), elapsedMs };
 }
+
+// ── Gyms and pulley ratios ────────────────────────────────────────────────────────────────
+// `pulleyRatio` = load felt at the handle ÷ weight shown on the stack.
+//   1:1 fixed pulley  → 1    (handle moves 1, stack moves 1)
+//   1:2 movable pulley → 0.5 (handle moves 2, stack moves 1; you feel half the pin weight)
+// The stack weight stays what the user reads off the machine; the effective load is derived.
+export const DEFAULT_GYM_ID = "v8_gym";
+export const PULLEY_PRESETS = Object.freeze([
+  { kind: "fixed", ratio: 1, label: "1:1 定滑轮", labelEn: "1:1 fixed pulley" },
+  { kind: "movable", ratio: 0.5, label: "1:2 动滑轮", labelEn: "1:2 movable pulley" },
+]);
+
+export function defaultGymProfile() {
+  return { version: 1, activeGymId: DEFAULT_GYM_ID, gyms: [{ id: DEFAULT_GYM_ID, name: "V8 GYM", since: "2026-10-07", note: "离家最近的健身房", location: null }], machines: {} };
+}
+
+export function normalizeGymProfile(input) {
+  const base = defaultGymProfile();
+  if (!input || typeof input !== "object" || !Array.isArray(input.gyms) || !input.gyms.length) return base;
+  const gyms = input.gyms.filter((gym) => gym && gym.id && gym.name);
+  if (!gyms.some((gym) => gym.id === DEFAULT_GYM_ID)) gyms.unshift(base.gyms[0]);
+  return { version: 1, activeGymId: gyms.some((gym) => gym.id === input.activeGymId) ? input.activeGymId : DEFAULT_GYM_ID, gyms, machines: input.machines && typeof input.machines === "object" ? input.machines : {} };
+}
+
+export function supportsPulley(exercise = {}) {
+  const text = `${exercise.name || exercise.exerciseName || ""} ${exercise.canonicalNameEn || ""}`;
+  return /绳索|滑轮|cable|pulley/i.test(exercise.equipment || "") || /绳索|下拉|pulldown|cable|坐姿.*划船|seated.*row|面拉|face pull|夹胸|pushdown|下压/i.test(text);
+}
+
+/** Machine identity: grip variants of one station (e.g. all lat pulldowns) share a setting. */
+export function machineKey(exerciseId) {
+  return gripVariantFamily(exerciseId)?.key || canonicalExerciseId(exerciseId || "");
+}
+
+export function normalizePulleyRatio(value) {
+  const ratio = Number(value);
+  return Number.isFinite(ratio) && ratio > 0 && ratio <= 4 ? Math.round(ratio * 1000) / 1000 : null;
+}
+
+export function pulleyLabel(ratio, locale = "zh") {
+  const value = normalizePulleyRatio(ratio);
+  if (value == null) return locale === "en" ? "Ratio not set" : "未设置传动比";
+  const preset = PULLEY_PRESETS.find((item) => item.ratio === value);
+  if (preset) return locale === "en" ? preset.labelEn : preset.label;
+  return value < 1 ? `1:${Math.round((1 / value) * 100) / 100}` : `${value}:1`;
+}
+
+export function effectiveLoad(weightValue, ratio) {
+  const value = normalizePulleyRatio(ratio);
+  if (value == null) return null;
+  return Math.round(Math.max(0, Number(weightValue) || 0) * value * 100) / 100;
+}
+
+export function activeGym(profile) {
+  const normalized = normalizeGymProfile(profile);
+  return normalized.gyms.find((gym) => gym.id === normalized.activeGymId) || normalized.gyms[0];
+}
+
+export function machineSetting(profile, gymId, exerciseId) {
+  return profile?.machines?.[gymId]?.[machineKey(exerciseId)] || null;
+}
+
+export function withMachineSetting(profile, gymId, exerciseId, setting) {
+  const normalized = normalizeGymProfile(profile);
+  const key = machineKey(exerciseId), ratio = normalizePulleyRatio(setting?.ratio);
+  const machines = { ...normalized.machines, [gymId]: { ...(normalized.machines[gymId] || {}) } };
+  if (ratio == null) delete machines[gymId][key];
+  else machines[gymId][key] = { ratio, note: String(setting.note || "").slice(0, 200), exerciseName: setting.exerciseName || "", updatedAt: setting.updatedAt || new Date().toISOString() };
+  return { ...normalized, machines };
+}
+
+export function distanceMeters(a, b) {
+  const rad = (deg) => (deg * Math.PI) / 180, R = 6371000;
+  const dLat = rad(b.lat - a.lat), dLng = rad(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+export function nearestGym(profile, position, maxMeters = 400) {
+  let best = null;
+  for (const gym of normalizeGymProfile(profile).gyms) {
+    if (!gym.location) continue;
+    const meters = distanceMeters(gym.location, position);
+    if (meters <= maxMeters && (!best || meters < best.meters)) best = { gym, meters: Math.round(meters) };
+  }
+  return best;
+}
+
+export function pulleyAIPrompt({ gymName = "", exerciseName = "" } = {}) {
+  return [
+    `我在${gymName || "健身房"}做「${exerciseName || "绳索动作"}」，请帮我判断这台绳索器械的传动比（手柄感受到的力 ÷ 配重片显示重量）。`,
+    "我会附上照片：配重片顶部、滑轮组和绳子走向。请：",
+    "1. 数一数拉动配重的绳段数，判断是定滑轮（1:1）还是动滑轮（1:2）或其他组合；",
+    "2. 如果看不清，告诉我用「拉手柄 20 cm，看配重升高多少」的方法怎么判断；",
+    "3. 最后只给一个数字：传动比系数（1:1 为 1，1:2 为 0.5）。",
+  ].join("\n");
+}

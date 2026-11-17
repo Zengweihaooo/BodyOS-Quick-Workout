@@ -52,3 +52,28 @@ test("forgotten workouts auto-finish one hour after the last set, minus the idle
   assert.equal(autoFinishPlan({ ...session, endedAt: "x" }, last + H), null);
   assert.equal(autoFinishPlan({ ...session, sets: [] }, last + H), null);
 });
+
+test("gym profile defaults to V8 GYM and pulley settings are shared per machine", async () => {
+  const m = await import("../core.js");
+  const profile = m.defaultGymProfile();
+  assert.equal(m.activeGym(profile).name, "V8 GYM");
+  assert.equal(m.activeGym(profile).since, "2026-10-07");
+  const next = m.withMachineSetting(profile, "v8_gym", "wide_grip_lat_pulldown", { ratio: 0.5 });
+  assert.equal(m.machineSetting(next, "v8_gym", "neutral_grip_lat_pulldown").ratio, 0.5, "all pulldown grips are one station");
+  assert.equal(m.machineSetting(next, "v8_gym", "seated_cable_row"), null);
+  assert.equal(m.effectiveLoad(40, 0.5), 20);
+  assert.equal(m.effectiveLoad(40, null), null);
+  assert.equal(m.pulleyLabel(0.5), "1:2 动滑轮");
+  assert.equal(m.pulleyLabel(1), "1:1 定滑轮");
+  assert.equal(m.pulleyLabel(0.25), "1:4");
+  assert.equal(m.machineSetting(m.withMachineSetting(next, "v8_gym", "wide_grip_lat_pulldown", { ratio: "" }), "v8_gym", "wide_grip_lat_pulldown"), null);
+  assert.ok(m.supportsPulley({ name: "宽握高位下拉", equipment: "器械" }));
+  assert.ok(!m.supportsPulley({ name: "哑铃弯举", equipment: "哑铃" }));
+});
+
+test("nearest gym matches within the radius only", async () => {
+  const m = await import("../core.js");
+  const profile = { ...m.defaultGymProfile(), gyms: [{ id: "v8_gym", name: "V8 GYM", location: { lat: 38.7223, lng: -9.1393 } }] };
+  assert.equal(m.nearestGym(profile, { lat: 38.7225, lng: -9.1395 })?.gym.id, "v8_gym");
+  assert.equal(m.nearestGym(profile, { lat: 38.75, lng: -9.1393 }), null);
+});
