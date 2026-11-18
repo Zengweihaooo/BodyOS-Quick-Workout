@@ -526,7 +526,8 @@ export function decisiveWatchCandidate(candidates, threshold = .9) {
 }
 
 export function calculateSetVolume(set, bodyWeight = null) {
-  const reps = number(set.reps, 0); const factor = set.weightUnit === "lb" ? 0.45359237 : 1; const weight = number(set.weightValue, 0) * factor;
+  const pulley = Number(set.pulleyRatio) > 0 && Number(set.pulleyRatio) <= 4 ? Number(set.pulleyRatio) : 1;
+  const reps = number(set.reps, 0); const factor = (set.weightUnit === "lb" ? 0.45359237 : 1) * (set.loadMode === "assistance" ? 1 : pulley); const weight = number(set.weightValue, 0) * factor;
   if (!reps) return 0;
   if (set.loadMode === "assistance") return bodyWeight == null ? null : Math.max(0, bodyWeight - weight) * reps;
   if (set.loadMode === "per_limb" && (set.left || set.right)) {
@@ -654,6 +655,14 @@ export function buildBodyCandidate(session) {
       };
       ["rir", "rpe", "rer"].forEach((key) => { if (item[key] != null) result[key] = item[key]; });
       ["gripWidth", "gripOrientation"].forEach((key) => { if (item[key]) result[key] = item[key]; });
+      const pulley = Number(item.pulleyRatio);
+      if (pulley > 0 && pulley <= 4 && item.loadMode !== "assistance") {
+        const finalValue = Math.round(item.weightValue * pulley * 100) / 100;
+        result.pulleyRatio = pulley; result.finalWeightValue = finalValue;
+        result.effectiveLoad = Math.round(finalValue * (item.weightUnit === "lb" ? 0.45359237 : 1) * 1000) / 1000;
+        const tag = `配重 ${item.weightValue}${item.weightUnit} · ${pulley === 1 ? "1:1 定滑轮" : pulley === 0.5 ? "1:2 动滑轮" : `传动比 ${pulley}`} · 最终 ${finalValue}${item.weightUnit}`;
+        result.notes = item.notes ? `${item.notes} · ${tag}` : tag;
+      }
       if (item.loadMode === "per_limb") {
         result.left = item.left || { weight: item.weightValue, reps: item.side === "right" ? 0 : item.reps };
         result.right = item.right || { weight: item.weightValue, reps: item.side === "left" ? 0 : item.reps };
@@ -745,7 +754,8 @@ export function snapshotFromWorkoutUploads(rows = []) {
         weight_basis: set.weightBasis || set.weight_basis,
         rir: set.rir,
         rpe: set.rpe,
-        calculated_volume: calculateSetVolume(set, session.bodyWeightKg),
+        calculated_volume: calculateSetVolume({ ...set, pulleyRatio: null }, session.bodyWeightKg),
+        ...(set.pulleyRatio != null ? { pulley_ratio: set.pulleyRatio } : {}),
       });
       grouped.set(id, group);
     }
@@ -756,6 +766,7 @@ export function snapshotFromWorkoutUploads(rows = []) {
       endedAt: normalizeTrainingTimestamp(session.endedAt),
       activityType: "TraditionalStrengthTraining",
       source: "quick_workout_upload",
+      gymId: String(session.gymId || ""),
       importedWorkoutId: String(row.imported_workout_id || ""),
       importedAt: row.imported_at || "",
       uploadUpdatedAt: row.updated_at || "",
@@ -1227,7 +1238,7 @@ export const PULLEY_PRESETS = Object.freeze([
 ]);
 
 export function defaultGymProfile() {
-  return { version: 1, activeGymId: DEFAULT_GYM_ID, gyms: [{ id: DEFAULT_GYM_ID, name: "V8 GYM", since: "2026-10-07", note: "离家最近的健身房", location: null }], machines: {} };
+  return withDefaultMachineHistory({ version: 1, activeGymId: DEFAULT_GYM_ID, gyms: [{ id: DEFAULT_GYM_ID, name: "V8 GYM", since: "2026-10-07", note: "离家最近的健身房", location: null }], machines: {} });
 }
 
 export function normalizeGymProfile(input) {
@@ -1235,7 +1246,20 @@ export function normalizeGymProfile(input) {
   if (!input || typeof input !== "object" || !Array.isArray(input.gyms) || !input.gyms.length) return base;
   const gyms = input.gyms.filter((gym) => gym && gym.id && gym.name);
   if (!gyms.some((gym) => gym.id === DEFAULT_GYM_ID)) gyms.unshift(base.gyms[0]);
-  return { version: 1, activeGymId: gyms.some((gym) => gym.id === input.activeGymId) ? input.activeGymId : DEFAULT_GYM_ID, gyms, machines: input.machines && typeof input.machines === "object" ? input.machines : {} };
+  return withDefaultMachineHistory({ version: 1, activeGymId: gyms.some((gym) => gym.id === input.activeGymId) ? input.activeGymId : DEFAULT_GYM_ID, gyms, machines: input.machines && typeof input.machines === "object" ? input.machines : {} });
+}
+
+function withDefaultMachineHistory(profile) {
+  const machines = { ...profile.machines };
+  for (const [gymId, items] of Object.entries(DEFAULT_MACHINE_HISTORY)) {
+    machines[gymId] = { ...(machines[gymId] || {}) };
+    for (const [key, seed] of Object.entries(items)) {
+      const current = machines[gymId][key];
+      if (Array.isArray(current?.history)) continue;
+      machines[gymId][key] = { ratio: current?.ratio ?? seed.history.at(-1).ratio, exerciseName: current?.exerciseName || seed.exerciseName, note: current?.note || "", updatedAt: current?.updatedAt || "2026-11-18T00:00:00.000Z", history: seed.history };
+    }
+  }
+  return { ...profile, machines };
 }
 
 export function supportsPulley(exercise = {}) {
@@ -1281,7 +1305,7 @@ export function withMachineSetting(profile, gymId, exerciseId, setting) {
   const key = machineKey(exerciseId), ratio = normalizePulleyRatio(setting?.ratio);
   const machines = { ...normalized.machines, [gymId]: { ...(normalized.machines[gymId] || {}) } };
   if (ratio == null) delete machines[gymId][key];
-  else machines[gymId][key] = { ratio, note: String(setting.note || "").slice(0, 200), exerciseName: setting.exerciseName || "", updatedAt: setting.updatedAt || new Date().toISOString() };
+  else machines[gymId][key] = { ...(machines[gymId][key]?.history ? { history: machines[gymId][key].history } : {}), ratio, note: String(setting.note || "").slice(0, 200), exerciseName: setting.exerciseName || machines[gymId][key]?.exerciseName || "", updatedAt: setting.updatedAt || new Date().toISOString() };
   return { ...normalized, machines };
 }
 
@@ -1310,4 +1334,65 @@ export function pulleyAIPrompt({ gymName = "", exerciseName = "" } = {}) {
     "2. 如果看不清，告诉我用「拉手柄 20 cm，看配重升高多少」的方法怎么判断；",
     "3. 最后只给一个数字：传动比系数（1:1 为 1，1:2 为 0.5）。",
   ].join("\n");
+}
+
+// ── Final weight (stack reading × pulley ratio) ───────────────────────────────────────────
+// Readings stay as the stack weight; charts, volume and comparisons use the final weight.
+// Past sets without a recorded ratio use the machine's ratio timeline at the workout date.
+export const DEFAULT_MACHINE_HISTORY = Object.freeze({
+  [DEFAULT_GYM_ID]: {
+    triceps_pushdown: { exerciseName: "绳索下压", history: [{ from: "2026-10-07", ratio: 0.5, note: "动滑轮" }, { from: "2026-11-17", ratio: 1, note: "定滑轮" }] },
+  },
+});
+
+export function pulleyRatioAt(profile, gymId, exerciseId, date) {
+  const day = String(date || "").slice(0, 10);
+  const timeline = machineSetting(profile, gymId, exerciseId)?.history;
+  if (!day || !Array.isArray(timeline)) return null;
+  let ratio = null;
+  for (const item of [...timeline].sort((a, b) => String(a.from).localeCompare(String(b.from)))) if (String(item.from) <= day) ratio = normalizePulleyRatio(item.ratio);
+  return ratio;
+}
+
+function historyGymId(profile, workout) {
+  if (workout?.gymId) return workout.gymId;
+  const gym = normalizeGymProfile(profile).gyms.find((item) => item.id === DEFAULT_GYM_ID);
+  return String(workout?.startedAt || "").slice(0, 10) >= String(gym?.since || "") ? DEFAULT_GYM_ID : "";
+}
+
+export function finalWeightValue(set = {}) {
+  const stack = Number(set.weightValue ?? set.weight_value ?? 0), ratio = normalizePulleyRatio(set.pulleyRatio ?? set.pulley_ratio);
+  return ratio == null ? stack : Math.round(stack * ratio * 100) / 100;
+}
+
+export function applyFinalWeights(snapshot, profile) {
+  if (!snapshot || typeof snapshot !== "object" || !Array.isArray(snapshot.workoutHistory)) return snapshot;
+  const next = structuredClone(snapshot);
+  for (const workout of next.workoutHistory) {
+    const gymId = historyGymId(profile, workout), date = workout.startedAt;
+    let volumeShift = 0;
+    for (const exercise of workout.exercises || []) {
+      for (const set of exercise.sets || []) {
+        if (set.stack_weight_value != null) continue;
+        const ratio = normalizePulleyRatio(set.pulley_ratio ?? set.pulleyRatio) ?? (gymId ? pulleyRatioAt(profile, gymId, exercise.exerciseId, date) : null);
+        if (ratio == null) continue;
+        const stack = Number(set.weight_value ?? set.weightValue ?? 0);
+        set.stack_weight_value = stack; set.pulley_ratio = ratio;
+        if (ratio === 1) continue;
+        const finalValue = Math.round(stack * ratio * 100) / 100;
+        set.weight_value = finalValue; if (set.weightValue != null) set.weightValue = finalValue;
+        if (Number(set.weight_kg) > 0) set.weight_kg = Math.round(set.weight_kg * ratio * 10000) / 10000;
+        if (Number(set.calculated_volume) > 0) { const old = Number(set.calculated_volume); set.calculated_volume = Math.round(old * ratio * 1000) / 1000; volumeShift += old - set.calculated_volume; }
+      }
+    }
+    if (volumeShift && workout.summary && Number.isFinite(Number(workout.summary.volume))) workout.summary.volume = Math.round((Number(workout.summary.volume) - volumeShift) * 10) / 10;
+  }
+  for (const [id, item] of Object.entries(next.exerciseDefaults || {})) {
+    if (!item || item.stackWeightValue != null) continue;
+    const ratio = pulleyRatioAt(profile, DEFAULT_GYM_ID, id, item.usedAt);
+    if (ratio == null || ratio === 1) continue;
+    item.stackWeightValue = item.weightValue; item.pulleyRatio = ratio;
+    item.weightValue = Math.round(Number(item.weightValue || 0) * ratio * 100) / 100;
+  }
+  return next;
 }

@@ -77,3 +77,33 @@ test("nearest gym matches within the radius only", async () => {
   assert.equal(m.nearestGym(profile, { lat: 38.7225, lng: -9.1395 })?.gym.id, "v8_gym");
   assert.equal(m.nearestGym(profile, { lat: 38.75, lng: -9.1393 }), null);
 });
+
+test("history keeps the stack reading and charts use the final weight from the pulley timeline", async () => {
+  const m = await import("../core.js");
+  const profile = m.defaultGymProfile();
+  const pushdown = (date, lb) => ({ id: date, startedAt: `${date}T18:00:00Z`, summary: { volume: 1000 }, exercises: [{ exerciseId: "triceps_pushdown", name: "绳索下压", sets: [{ weight_value: lb, weight_unit: "lb", weight_kg: lb * 0.45359237, reps: 12, calculated_volume: lb * 0.45359237 * 12 }] }] });
+  const snapshot = { workoutHistory: [pushdown("2026-11-17", 30), pushdown("2026-11-14", 40), pushdown("2026-11-01", 30), pushdown("2026-09-01", 30)], exerciseDefaults: { triceps_pushdown: { weightValue: 40, weightUnit: "lb", usedAt: "2026-11-14T18:55:02Z" } } };
+  const out = m.applyFinalWeights(snapshot, profile);
+  const set = (i) => out.workoutHistory[i].exercises[0].sets[0];
+  assert.deepEqual([set(0).weight_value, set(0).pulley_ratio, set(0).stack_weight_value], [30, 1, 30], "today: fixed pulley, unchanged");
+  assert.deepEqual([set(1).weight_value, set(1).pulley_ratio, set(1).stack_weight_value], [20, 0.5, 40], "11/14 movable pulley: 40 lb stack → 20 lb final");
+  assert.equal(set(2).weight_value, 15);
+  assert.equal(set(3).weight_value, 30, "before V8 GYM: untouched");
+  assert.equal(set(3).pulley_ratio, undefined);
+  assert.ok(Math.abs(set(1).weight_kg - 20 * 0.45359237) < 1e-3);
+  assert.ok(out.workoutHistory[1].summary.volume < 1000);
+  assert.equal(out.exerciseDefaults.triceps_pushdown.weightValue, 20);
+  assert.equal(snapshot.workoutHistory[1].exercises[0].sets[0].weight_value, 40, "input not mutated");
+  assert.deepEqual(m.applyFinalWeights(out, profile).workoutHistory[1].exercises[0].sets[0].weight_value, 20, "idempotent");
+  assert.equal(m.progressSeriesForExercise(out, "triceps_pushdown").points.find((p) => p.date === "2026-11-14").weightKg.toFixed(2), (20 * 0.45359237).toFixed(2));
+});
+
+test("explicit set ratio wins and volume uses the final weight", async () => {
+  const m = await import("../core.js");
+  assert.equal(m.calculateSetVolume({ weightValue: 40, weightUnit: "kg", reps: 10, loadMode: "total", pulleyRatio: 0.5 }), 200);
+  const candidate = m.buildBodyCandidate({ startedAt: "2026-11-18T10:00:00Z", sets: [{ exerciseId: "triceps_pushdown", exerciseName: "绳索下压", weightValue: 40, weightUnit: "lb", reps: 12, loadMode: "total", pulleyRatio: 0.5, completedAt: "2026-11-18T10:05:00Z" }] });
+  const s = candidate.exercises[0].sets[0];
+  assert.equal(s.weightValue, 40, "stack reading kept");
+  assert.equal(s.finalWeightValue, 20);
+  assert.match(s.notes, /配重 40lb · 1:2 动滑轮 · 最终 20lb/);
+});
